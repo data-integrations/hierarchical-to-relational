@@ -1,0 +1,152 @@
+{
+    "name": "hirerachy_to_relational_pipeline_macro",
+    "description": "Data Pipeline Application",
+    "artifact": {
+        "name": "cdap-data-pipeline",
+        "version": "6.3.0-SNAPSHOT",
+        "scope": "SYSTEM"
+    },
+    "config": {
+        "resources": {
+            "memoryMB": 2048,
+            "virtualCores": 1
+        },
+        "driverResources": {
+            "memoryMB": 2048,
+            "virtualCores": 1
+        },
+        "connections": [
+            {
+                "from": "File",
+                "to": "Hierarchy Configuration"
+            },
+            {
+                "from": "Hierarchy Configuration",
+                "to": "File2"
+            }
+        ],
+        "comments": [],
+        "postActions": [],
+        "properties": {},
+        "processTimingEnabled": true,
+        "stageLoggingEnabled": false,
+        "stages": [
+            {
+                "name": "File",
+                "plugin": {
+                    "name": "File",
+                    "type": "batchsource",
+                    "label": "File",
+                    "artifact": {
+                        "name": "core-plugins",
+                        "version": "2.5.0-SNAPSHOT",
+                        "scope": "SYSTEM"
+                    },
+                    "properties": {
+                        "format": "csv",
+                        "skipHeader": "true",
+                        "filenameOnly": "false",
+                        "recursive": "false",
+                        "ignoreNonExistingFolders": "false",
+                        "schema": "{\"type\":\"record\",\"name\":\"etlSchemaBody\",\"fields\":[{\"name\":\"ParentId\",\"type\":\"int\"},{\"name\":\"ChildId\",\"type\":\"int\"},{\"name\":\"ParentProduct\",\"type\":\"string\"},{\"name\":\"ChildProduct\",\"type\":\"string\"},{\"name\":\"Supplier\",\"type\":\"string\"},{\"name\":\"Sales\",\"type\":\"double\"}]}",
+                        "referenceName": "htr_source",
+                        "delimiter": ",",
+                        "path": "${inputFile}"
+                    }
+                },
+                "outputSchema": [
+                    {
+                        "name": "etlSchemaBody",
+                        "schema": "{\"type\":\"record\",\"name\":\"etlSchemaBody\",\"fields\":[{\"name\":\"ParentId\",\"type\":\"int\"},{\"name\":\"ChildId\",\"type\":\"int\"},{\"name\":\"ParentProduct\",\"type\":\"string\"},{\"name\":\"ChildProduct\",\"type\":\"string\"},{\"name\":\"Supplier\",\"type\":\"string\"},{\"name\":\"Sales\",\"type\":\"double\"}]}"
+                    }
+                ],
+                "id": "File",
+                "type": "batchsource",
+                "label": "File",
+                "icon": "icon-file"
+            },
+            {
+                "name": "Hierarchy Configuration",
+                "plugin": {
+                    "name": "HierarchyToRelational",
+                    "type": "sparkcompute",
+                    "label": "Hierarchy Configuration",
+                    "artifact": {
+                        "name": "hierarchy-to-relational",
+                        "version": "1.0.0-SNAPSHOT",
+                        "scope": "USER"
+                    },
+                    "properties": {
+                        "parentField": "ParentId",
+                        "childField": "ChildId",
+                        "parentChildMappingField": "ParentProduct=ChildProduct",
+                        "levelField": "Level",
+                        "topField": "Root",
+                        "bottomField": "Leaf",
+                        "trueValueField": "true",
+                        "falseValueField": "false",
+                        "maxDepthField": "50"
+                    }
+                },
+                "outputSchema": [
+                    {
+                        "name": "etlSchemaBody",
+                        "schema": "{\"type\":\"record\",\"name\":\"record\",\"fields\":[{\"name\":\"ParentId\",\"type\":\"int\"},{\"name\":\"ChildId\",\"type\":\"int\"},{\"name\":\"ParentProduct\",\"type\":\"string\"},{\"name\":\"ChildProduct\",\"type\":\"string\"},{\"name\":\"Supplier\",\"type\":[\"string\",\"null\"]},{\"name\":\"Sales\",\"type\":[\"double\",\"null\"]},{\"name\":\"Level\",\"type\":\"int\"},{\"name\":\"Root\",\"type\":\"string\"},{\"name\":\"Leaf\",\"type\":\"string\"}]}"
+                    }
+                ],
+                "inputSchema": [
+                    {
+                        "name": "File",
+                        "schema": "{\"type\":\"record\",\"name\":\"etlSchemaBody\",\"fields\":[{\"name\":\"ParentId\",\"type\":\"int\"},{\"name\":\"ChildId\",\"type\":\"int\"},{\"name\":\"ParentProduct\",\"type\":\"string\"},{\"name\":\"ChildProduct\",\"type\":\"string\"},{\"name\":\"Supplier\",\"type\":\"string\"},{\"name\":\"Sales\",\"type\":\"double\"}]}"
+                    }
+                ],
+                "id": "Hierarchy-Configuration",
+                "type": "sparkcompute",
+                "label": "Hierarchy Configuration",
+                "icon": "fa-plug"
+            },
+            {
+                "name": "File2",
+                "plugin": {
+                    "name": "File",
+                    "type": "batchsink",
+                    "label": "File2",
+                    "artifact": {
+                        "name": "core-plugins",
+                        "version": "2.5.0-SNAPSHOT",
+                        "scope": "SYSTEM"
+                    },
+                    "properties": {
+                        "suffix": "yyyy-MM-dd-HH-mm",
+                        "format": "csv",
+                        "path": "${outputDir}",
+                        "referenceName": "htr_sink",
+                        "delimiter": ",",
+                        "schema": "{\"type\":\"record\",\"name\":\"record\",\"fields\":[{\"name\":\"ParentId\",\"type\":\"int\"},{\"name\":\"ChildId\",\"type\":\"int\"},{\"name\":\"ParentProduct\",\"type\":\"string\"},{\"name\":\"ChildProduct\",\"type\":\"string\"},{\"name\":\"Supplier\",\"type\":[\"string\",\"null\"]},{\"name\":\"Sales\",\"type\":[\"double\",\"null\"]},{\"name\":\"Level\",\"type\":\"int\"},{\"name\":\"Root\",\"type\":\"string\"},{\"name\":\"Leaf\",\"type\":\"string\"}]}"
+                    }
+                },
+                "outputSchema": [
+                    {
+                        "name": "etlSchemaBody",
+                        "schema": "{\"type\":\"record\",\"name\":\"record\",\"fields\":[{\"name\":\"ParentId\",\"type\":\"int\"},{\"name\":\"ChildId\",\"type\":\"int\"},{\"name\":\"ParentProduct\",\"type\":\"string\"},{\"name\":\"ChildProduct\",\"type\":\"string\"},{\"name\":\"Supplier\",\"type\":[\"string\",\"null\"]},{\"name\":\"Sales\",\"type\":[\"double\",\"null\"]},{\"name\":\"Level\",\"type\":\"int\"},{\"name\":\"Root\",\"type\":\"string\"},{\"name\":\"Leaf\",\"type\":\"string\"}]}"
+                    }
+                ],
+                "inputSchema": [
+                    {
+                        "name": "Hierarchy Configuration",
+                        "schema": "{\"type\":\"record\",\"name\":\"record\",\"fields\":[{\"name\":\"ParentId\",\"type\":\"int\"},{\"name\":\"ChildId\",\"type\":\"int\"},{\"name\":\"ParentProduct\",\"type\":\"string\"},{\"name\":\"ChildProduct\",\"type\":\"string\"},{\"name\":\"Supplier\",\"type\":[\"string\",\"null\"]},{\"name\":\"Sales\",\"type\":[\"double\",\"null\"]},{\"name\":\"Level\",\"type\":\"int\"},{\"name\":\"Root\",\"type\":\"string\"},{\"name\":\"Leaf\",\"type\":\"string\"}]}"
+                    }
+                ],
+                "id": "File2",
+                "type": "batchsink",
+                "label": "File2",
+                "icon": "icon-file"
+            }
+        ],
+        "schedule": "0 * * * *",
+        "engine": "spark",
+        "numOfRecordsPreview": 100,
+        "description": "Data Pipeline Application",
+        "maxConcurrentRuns": 1
+    }
+}
