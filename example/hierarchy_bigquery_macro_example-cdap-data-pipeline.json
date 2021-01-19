@@ -1,0 +1,136 @@
+{
+    "artifact": {
+        "name": "cdap-data-pipeline",
+        "version": "6.3.0-SNAPSHOT",
+        "scope": "SYSTEM"
+    },
+    "description": "Data Pipeline Application",
+    "name": "hierarchy_bigquery_macro_example",
+    "config": {
+        "resources": {
+            "memoryMB": 2048,
+            "virtualCores": 1
+        },
+        "driverResources": {
+            "memoryMB": 2048,
+            "virtualCores": 1
+        },
+        "connections": [
+            {
+                "from": "BigQuery",
+                "to": "Hierarchy Configuration"
+            },
+            {
+                "from": "Hierarchy Configuration",
+                "to": "Trash"
+            }
+        ],
+        "comments": [],
+        "postActions": [],
+        "properties": {},
+        "processTimingEnabled": true,
+        "stageLoggingEnabled": false,
+        "stages": [
+            {
+                "name": "BigQuery",
+                "plugin": {
+                    "name": "BigQueryTable",
+                    "type": "batchsource",
+                    "label": "BigQuery",
+                    "artifact": {
+                        "name": "google-cloud",
+                        "version": "0.16.0-SNAPSHOT",
+                        "scope": "USER"
+                    },
+                    "properties": {
+                        "project": "${projectId}",
+                        "enableQueryingViews": "false",
+                        "serviceAccountType": "${serviceAccountType}",
+                        "serviceFilePath": "${serviceAccountFilePath}",
+                        "referenceName": "hierarchy-sample-source",
+                        "dataset": "${dataset}",
+                        "table": "${table}",
+                        "schema": "{\"type\":\"record\",\"name\":\"output\",\"fields\":[{\"name\":\"parent\",\"type\":[\"long\",\"null\"]},{\"name\":\"child\",\"type\":[\"long\",\"null\"]},{\"name\":\"child_name\",\"type\":[\"string\",\"null\"]},{\"name\":\"parent_name\",\"type\":[\"string\",\"null\"]}]}"
+                    }
+                },
+                "outputSchema": [
+                    {
+                        "name": "etlSchemaBody",
+                        "schema": "{\"type\":\"record\",\"name\":\"output\",\"fields\":[{\"name\":\"parent\",\"type\":[\"long\",\"null\"]},{\"name\":\"child\",\"type\":[\"long\",\"null\"]},{\"name\":\"child_name\",\"type\":[\"string\",\"null\"]},{\"name\":\"parent_name\",\"type\":[\"string\",\"null\"]}]}"
+                    }
+                ],
+                "id": "BigQuery"
+            },
+            {
+                "name": "Hierarchy Configuration",
+                "plugin": {
+                    "name": "HierarchyToRelational",
+                    "type": "sparkcompute",
+                    "label": "Hierarchy Configuration",
+                    "artifact": {
+                        "name": "hierarchy-to-relational",
+                        "version": "1.0.0-SNAPSHOT",
+                        "scope": "USER"
+                    },
+                    "properties": {
+                        "parentField": "parent",
+                        "childField": "child",
+                        "parentChildMappingField": "parent_name=child_name",
+                        "levelField": "level",
+                        "topField": "IsTop",
+                        "bottomField": "IsBottom",
+                        "trueValueField": "True",
+                        "falseValueField": "False"
+                    }
+                },
+                "outputSchema": [
+                    {
+                        "name": "etlSchemaBody",
+                        "schema": "{\"type\":\"record\",\"name\":\"record\",\"fields\":[{\"name\":\"parent\",\"type\":[\"long\",\"null\"]},{\"name\":\"child\",\"type\":[\"long\",\"null\"]},{\"name\":\"child_name\",\"type\":[\"string\",\"null\"]},{\"name\":\"parent_name\",\"type\":[\"string\",\"null\"]},{\"name\":\"level\",\"type\":\"int\"},{\"name\":\"IsTop\",\"type\":\"string\"},{\"name\":\"IsBottom\",\"type\":\"string\"}]}"
+                    }
+                ],
+                "inputSchema": [
+                    {
+                        "name": "BigQuery",
+                        "schema": "{\"type\":\"record\",\"name\":\"output\",\"fields\":[{\"name\":\"parent\",\"type\":[\"long\",\"null\"]},{\"name\":\"child\",\"type\":[\"long\",\"null\"]},{\"name\":\"child_name\",\"type\":[\"string\",\"null\"]},{\"name\":\"parent_name\",\"type\":[\"string\",\"null\"]}]}"
+                    }
+                ],
+                "id": "Hierarchy-Configuration"
+            },
+            {
+                "name": "Trash",
+                "plugin": {
+                    "name": "Trash",
+                    "type": "batchsink",
+                    "label": "Trash",
+                    "artifact": {
+                        "name": "trash-plugin",
+                        "version": "1.2.0",
+                        "scope": "USER"
+                    },
+                    "properties": {
+                        "referenceName": "Trash"
+                    }
+                },
+                "outputSchema": [
+                    {
+                        "name": "etlSchemaBody",
+                        "schema": "{\"type\":\"record\",\"name\":\"record\",\"fields\":[{\"name\":\"parent\",\"type\":[\"long\",\"null\"]},{\"name\":\"child\",\"type\":[\"long\",\"null\"]},{\"name\":\"name\",\"type\":[\"string\",\"null\"]},{\"type\":\"string\"}]}"
+                    }
+                ],
+                "inputSchema": [
+                    {
+                        "name": "Hierarchy Configuration",
+                        "schema": "{\"type\":\"record\",\"name\":\"record\",\"fields\":[{\"name\":\"parent\",\"type\":[\"long\",\"null\"]},{\"name\":\"child\",\"type\":[\"long\",\"null\"]},{\"name\":\"child_name\",\"type\":[\"string\",\"null\"]},{\"name\":\"parent_name\",\"type\":[\"string\",\"null\"]},{\"name\":\"level\",\"type\":\"int\"},{\"name\":\"IsTop\",\"type\":\"string\"},{\"name\":\"IsBottom\",\"type\":\"string\"}]}"
+                    }
+                ],
+                "id": "Trash"
+            }
+        ],
+        "schedule": "0 * * * *",
+        "engine": "spark",
+        "numOfRecordsPreview": 100,
+        "description": "Data Pipeline Application",
+        "maxConcurrentRuns": 1
+    }
+}

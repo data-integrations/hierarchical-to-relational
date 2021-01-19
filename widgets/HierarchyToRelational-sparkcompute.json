@@ -1,0 +1,77 @@
+{
+  "metadata": {
+    "spec-version": "1.5",
+    "label": "Hierarchy to Relational"
+  },
+  "display-name" : "Hierarchy Configuration",
+  "configuration-groups": [
+    {
+      "label": "Hierarchy to Relational Configuration",
+      "properties": [
+        {
+          "label": "Parent field",
+          "name": "parentField",
+          "widget-type": "input-field-selector"
+        },
+        {
+          "label": "Child field",
+          "name": "childField",
+          "widget-type": "input-field-selector"
+        },
+        {
+          "label": "Parent -> Child fields mapping",
+          "name": "parentChildMappingField",
+          "widget-type": "keyvalue",
+          "widget-attributes": {
+            "showDelimiter": "false",
+            "key-placeholder": "Parent field",
+            "value-placeholder": "Child field",
+            "kv-delimiter" : "=",
+            "delimiter" : ";"
+          }
+        }
+      ]
+    },
+    {
+      "label": "Advanced",
+      "properties": [
+        {
+          "label": "Level field name",
+          "name": "levelField",
+          "widget-type": "textbox",
+          "default": "Level"
+        },
+        {
+          "label": "Top field name",
+          "name": "topField",
+          "widget-type": "textbox",
+          "default": "Top"
+        },
+        {
+          "label": "Bottom field name",
+          "name": "bottomField",
+          "widget-type": "textbox",
+          "default": "Bottom"
+        },
+        {
+          "label": "True value",
+          "name": "trueValueField",
+          "widget-type": "textbox",
+          "default": "Y"
+        },
+        {
+          "label": "False value",
+          "name": "falseValueField",
+          "widget-type": "textbox",
+          "default": "N"
+        },
+        {
+          "label": "Max depth",
+          "name": "maxDepthField",
+          "widget-type": "textbox",
+          "default": 50
+        }
+      ]
+    }
+  ]
+}
