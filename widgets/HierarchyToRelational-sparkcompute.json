@@ -3,7 +3,7 @@
     "spec-version": "1.5",
     "label": "Hierarchy to Relational"
   },
-  "display-name" : "Hierarchy Configuration",
+  "display-name" : "Hierarchy to Relational",
   "configuration-groups": [
     {
       "label": "Hierarchy to Relational Configuration",

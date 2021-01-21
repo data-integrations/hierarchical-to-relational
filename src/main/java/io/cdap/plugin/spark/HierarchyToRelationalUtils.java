@@ -68,14 +68,24 @@ public class HierarchyToRelationalUtils {
     SQLContext sqlContext = new SQLContext(sparkExecutionPluginContext.getSparkContext());
     Dataset<Row> data = sqlContext.createDataFrame(map, DataFrames.toDataType(inputSchema));
     data.registerTempTable(SQLUtils.NAME_HIERARCHY_TABLE);
-    Dataset<Row> rootRecords = sqlContext.sql(SQLUtils.sqlStatementForRoot(config, SQLUtils.NAME_HIERARCHY_TABLE));
-    if (rootRecords.select(config.getParentField()).distinct().count() > 1) {
+    Dataset<Row> rootRecord = sqlContext.sql(SQLUtils.sqlStatementForRoot(config, SQLUtils.NAME_HIERARCHY_TABLE));
+    if (rootRecord.count() == 0) {
+      // Fallback to generating root record from first branch under root
+      rootRecord = sqlContext.sql(SQLUtils.sqlStatementForFirstBranchOfRoot(config, SQLUtils.NAME_HIERARCHY_TABLE));
+    }
+    if (rootRecord.count() > 1) {
       throw new Exception("There can only be one root element in the hierarchy");
     }
-    Row root = rootRecords.select(config.getParentField()).distinct().first();
+    // Check if after both queries could not find root element
+    if (rootRecord.count() == 0) {
+      throw new Exception("Could not find root element in the hierarchy");
+    }
+    Row root = rootRecord.distinct().first();
+    // Indicates whether both Parent and Child Id of root element are identical
+    boolean isSelfReferencingRoot = root.getAs(config.parentField).equals(root.getAs(config.childField));
 
     Dataset<Row> uniqueRecords = data.sqlContext().sql(
-      SQLUtils.sqlForUniqueRecords(config, root, SQLUtils.NAME_HIERARCHY_TABLE));
+      SQLUtils.sqlForUniqueRecords(config, root, SQLUtils.NAME_HIERARCHY_TABLE, !isSelfReferencingRoot));
     // Fetch on child id's from the input dataset
     Dataset<Row> leafRecords = data.sqlContext().sql(
       SQLUtils.sqlStatementForLeafRecords(config, SQLUtils.NAME_HIERARCHY_TABLE));
@@ -87,10 +97,17 @@ public class HierarchyToRelationalUtils {
     Dataset<Row> results = sqlContext.createDataFrame(
       sparkExecutionPluginContext.getSparkContext().emptyRDD(), DataFrames.toDataType(outputSchema));
     // Root does not exists as separate value - this will generate it
-    results = results.union(generateTreeRoot(data, config, nonMappedFields, mappedFields));
+    if (!isSelfReferencingRoot) {
+      results = results.union(generateTreeRoot(data, config, nonMappedFields, mappedFields));
+    } else {
+      results = results.union(fetchTreeRoot(data, config));
+    }
     // Generate tree for each unique row
+    String rootId = String.valueOf(root.get(root.fieldIndex(config.childField)));
     for (Row row : rows) {
-      results = results.union(generateQuery(row, data, sqlContext));
+      boolean excludeSelfReferencingRoot = isSelfReferencingRoot &&
+        String.valueOf(row.get(row.fieldIndex(config.childField))).equals(rootId);
+      results = results.union(generateQuery(row, data, sqlContext, excludeSelfReferencingRoot));
     }
     // sets leaves indicator
     results.registerTempTable(SQLUtils.NAME_RESULTS_TEMP_TABLE);
@@ -106,7 +123,8 @@ public class HierarchyToRelationalUtils {
    * @return dataset reference with all subtree rows for a given row
    * @throws Exception raises exception if max depth is exceeded
    */
-  public Dataset<Row> generateQuery(Row parentRow, Dataset<Row> data, SQLContext sqlContext)
+  public Dataset<Row> generateQuery(Row parentRow, Dataset<Row> data, SQLContext sqlContext,
+                                    boolean excludeSelfReferencingRoot)
     throws Exception {
     long dataFrameCount = 1;
     int count = 1;
@@ -156,7 +174,15 @@ public class HierarchyToRelationalUtils {
       }
       count = count + 1;
     }
-    String treeQuery = SQLUtils.sqlStatementForRootSelection(parentId);
+    String treeQuery = "";
+    if (excludeSelfReferencingRoot) {
+      // This will select branch root excluding self referencing root (root with same parent->child id)
+      // ex: select * from vt_1_root_seed where ParentId!=ChildId
+      treeQuery = String.format("%s where %s!=%s", SQLUtils.sqlStatementForRootSelection(parentId),
+                                config.parentField, config.childField);
+    } else {
+      treeQuery = treeQuery.concat(SQLUtils.sqlStatementForRootSelection(parentId));
+    }
     for (int index = 0; index <= (count - 2); index++) {
       treeQuery = treeQuery.concat(SQLUtils.unionSqlStatement(config, parentId, index, parentFields,
                                                               childFields, otherFields));
@@ -185,8 +211,9 @@ public class HierarchyToRelationalUtils {
   private Dataset<Row> generateTreeRoot(Dataset<Row> data, HierarchyToRelationalConfig config,
                                         List<String> nonMappedFields, Map<String, String> mappedFields) {
     String additionalFieldsForRoot = String.format("0 as %s,'%s' as %s,'%s' as %s ",
-                                                   config.levelField, config.trueValueField, config.topField,
-                                                   config.falseValueField, config.bottomField);
+                                                   config.getLevelField(), config.getTrueValueField(),
+                                                   config.getTopField(), config.getFalseValueField(),
+                                                   config.getBottomField());
     String parentChildFieldMap = mappedFields.entrySet().stream()
       .map(mappedField -> String.format("%s as %s, %s", mappedField.getKey(), mappedField.getValue(),
                                         mappedField.getKey())).collect(Collectors.joining(","));
@@ -200,6 +227,25 @@ public class HierarchyToRelationalUtils {
   }
 
   /**
+   * Fetches tree root record
+   *
+   * @param data   dataset with all unique records in tree
+   * @param config {@link HierarchyToRelationalConfig}
+   * @return dataset with rows matching root record criteria
+   */
+  private Dataset<Row> fetchTreeRoot(Dataset<Row> data, HierarchyToRelationalConfig config) {
+    String additionalFieldsForRoot = String.format("0 as %s,'%s' as %s,'%s' as %s ",
+                                                   config.getLevelField(), config.getTrueValueField(),
+                                                   config.getTopField(), config.getFalseValueField(),
+                                                   config.getBottomField());
+    String sqlForFetchingRootWithAdditionalFields = String.format("select *, %s from %s where %s=%s",
+                                                                  additionalFieldsForRoot,
+                                                                  SQLUtils.NAME_HIERARCHY_TABLE,
+                                                                  config.parentField, config.childField);
+    return data.sqlContext().sql(sqlForFetchingRootWithAdditionalFields).limit(1);
+  }
+
+  /**
    * Creates root record for a given record
    *
    * @param parentRow row containing id of the record
@@ -208,8 +254,9 @@ public class HierarchyToRelationalUtils {
    */
   private void mapSelfToTreeRoot(Row parentRow, Dataset<Row> data, HierarchyToRelationalConfig config) {
     String additionalFieldsForRoot = String.format("0 as %s,'%s' as %s,'%s' as %s ",
-                                                   config.levelField, config.falseValueField, config.topField,
-                                                   config.falseValueField, config.bottomField);
+                                                   config.getLevelField(), config.getFalseValueField(),
+                                                   config.getTopField(), config.getFalseValueField(),
+                                                   config.getBottomField());
     Map<String, String> parentChildMapping = config.getParentChildMapping();
     StringBuilder mappedFields = new StringBuilder();
     for (Map.Entry<String, String> stringStringEntry : parentChildMapping.entrySet()) {

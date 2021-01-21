@@ -40,6 +40,7 @@ import io.cdap.cdap.test.ApplicationManager;
 import io.cdap.cdap.test.DataSetManager;
 import io.cdap.cdap.test.TestConfiguration;
 import io.cdap.cdap.test.WorkflowManager;
+import org.apache.commons.collections.ListUtils;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.ClassRule;
@@ -47,6 +48,7 @@ import org.junit.Test;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -94,6 +96,12 @@ public class HierarchyToRelationalTest extends HydratorTestBase {
 
     StructuredRecord.builder(INPUT_SCHEMA).set("ParentId", 4).set("ChildId", 6).set("ParentProduct", "Vegetables")
       .set("ChildProduct", "Onion").set("Supplier", "E").set("Sales", 30).build()
+  );
+
+  private static final List<StructuredRecord> INPUT_DATA_WITH_PARENT_RECORD = ListUtils.union(
+    Collections.singletonList(StructuredRecord.builder(INPUT_SCHEMA).set("ParentId", 1).set("ChildId", 1)
+                                .set("ParentProduct", "Groceries").set("ChildProduct", "Groceries")
+                                .set("Supplier", null).set("Sales", null).build()), INPUT_DATA
   );
 
 
@@ -147,7 +155,7 @@ public class HierarchyToRelationalTest extends HydratorTestBase {
   }
 
   @Test
-  public void test() throws Exception {
+  public void testDatasetWithoutRootElement() throws Exception {
     Map<String, String> properties = new HashMap<>();
     properties.put("parentField", "ParentId");
     properties.put("childField", "ChildId");
@@ -176,6 +184,49 @@ public class HierarchyToRelationalTest extends HydratorTestBase {
 
     DataSetManager<Table> inputManager = getDataset(inputDataset);
     MockSource.writeInput(inputManager, INPUT_DATA);
+
+    WorkflowManager workflowManager = appManager.getWorkflowManager(SmartWorkflow.NAME);
+    workflowManager.startAndWaitForRun(ProgramRunStatus.COMPLETED, 3, TimeUnit.MINUTES);
+
+    DataSetManager<Table> outputManager = getDataset(outputDateset);
+    List<StructuredRecord> output = MockSink.readOutput(outputManager);
+
+    List<String> expected = convertStructuredRecordListToJson(EXPECTED_OUTPUT);
+    List<String> result = convertStructuredRecordListToJson(output);
+
+    Assert.assertEquals(expected, result);
+  }
+
+  @Test
+  public void testDatasetWithRootElement() throws Exception {
+    Map<String, String> properties = new HashMap<>();
+    properties.put("parentField", "ParentId");
+    properties.put("childField", "ChildId");
+    properties.put("parentChildMappingField", "ParentProduct=ChildProduct");
+    properties.put("levelField", "levelField");
+    properties.put("topField", "topField");
+    properties.put("bottomField", "bottomField");
+    properties.put("trueValueField", "true");
+    properties.put("falseValueField", "false");
+    properties.put("maxDepthField", "50");
+    String inputDataset = UUID.randomUUID().toString();
+    String outputDateset = UUID.randomUUID().toString();
+    ETLBatchConfig config = ETLBatchConfig.builder()
+      .addStage(new ETLStage("source", MockSource.getPlugin(inputDataset, INPUT_SCHEMA)))
+      .addStage(new ETLStage("hierarchytorelational", new ETLPlugin("HierarchyToRelational",
+                                                                    SparkCompute.PLUGIN_TYPE, properties)))
+      .addStage(new ETLStage("sink", MockSink.getPlugin(outputDateset)))
+      .addConnection("source", "hierarchytorelational")
+      .addConnection("hierarchytorelational", "sink")
+      .build();
+
+    AppRequest<ETLBatchConfig> appRequest = new AppRequest<>(
+      new ArtifactSummary(APP_ARTIFACT_PIPELINE.getName(), APP_ARTIFACT_PIPELINE.getVersion()), config);
+    ApplicationId appId = NamespaceId.DEFAULT.app("hierarchytorelational");
+    ApplicationManager appManager = deployApplication(appId, appRequest);
+
+    DataSetManager<Table> inputManager = getDataset(inputDataset);
+    MockSource.writeInput(inputManager, INPUT_DATA_WITH_PARENT_RECORD);
 
     WorkflowManager workflowManager = appManager.getWorkflowManager(SmartWorkflow.NAME);
     workflowManager.startAndWaitForRun(ProgramRunStatus.COMPLETED, 3, TimeUnit.MINUTES);
