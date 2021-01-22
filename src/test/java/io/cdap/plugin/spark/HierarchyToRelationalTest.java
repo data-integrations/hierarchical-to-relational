@@ -27,6 +27,7 @@ import io.cdap.cdap.etl.api.batch.SparkCompute;
 import io.cdap.cdap.etl.mock.batch.MockSink;
 import io.cdap.cdap.etl.mock.batch.MockSource;
 import io.cdap.cdap.etl.mock.test.HydratorTestBase;
+import io.cdap.cdap.etl.mock.validation.MockFailureCollector;
 import io.cdap.cdap.etl.proto.v2.ETLBatchConfig;
 import io.cdap.cdap.etl.proto.v2.ETLPlugin;
 import io.cdap.cdap.etl.proto.v2.ETLStage;
@@ -45,6 +46,7 @@ import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.ClassRule;
 import org.junit.Test;
+import org.mockito.internal.util.reflection.FieldSetter;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -238,5 +240,29 @@ public class HierarchyToRelationalTest extends HydratorTestBase {
     List<String> result = convertStructuredRecordListToJson(output);
 
     Assert.assertEquals(expected, result);
+  }
+
+  @Test
+  public void testConfigWithDefaultValues() throws NoSuchFieldException {
+    HierarchyToRelationalConfig config = new HierarchyToRelationalConfig();
+    FieldSetter.setField(config, HierarchyToRelationalConfig.class.getDeclaredField("parentField"),"ParentId");
+    FieldSetter.setField(config, HierarchyToRelationalConfig.class.getDeclaredField("childField"),"ChildId");
+    FieldSetter.setField(config, HierarchyToRelationalConfig.class.getDeclaredField("parentChildMappingField"),"ParentProduct=ChildProduct");
+    MockFailureCollector collector = new MockFailureCollector();
+    config.validate(collector);
+    Assert.assertEquals(0, collector.getValidationFailures().size());
+    Assert.assertEquals("Y", config.getTrueValueField());
+    Assert.assertEquals("N", config.getFalseValueField());
+    Assert.assertEquals("Top", config.getTopField());
+    Assert.assertEquals("Bottom", config.getBottomField());
+    Assert.assertEquals("Level", config.getLevelField());
+    Schema outputSchema = config.generateOutputSchema(INPUT_SCHEMA);
+    // expected schema with default values
+    List<Schema.Field> fields = new ArrayList<>(INPUT_SCHEMA.getFields());
+    fields.add(Schema.Field.of("Level", Schema.of(Schema.Type.INT)));
+    fields.add(Schema.Field.of("Top", Schema.of(Schema.Type.STRING)));
+    fields.add(Schema.Field.of("Bottom", Schema.of(Schema.Type.STRING)));
+    Schema expectedOutputSchema = Schema.recordOf("record", fields);
+    Assert.assertEquals(expectedOutputSchema, outputSchema);
   }
 }

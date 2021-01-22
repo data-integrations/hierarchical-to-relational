@@ -76,18 +76,18 @@ public class SQLUtils {
    * @param config    {@link HierarchyToRelationalConfig}
    * @param root      {@link Row} root record
    * @param tableName {@link String} name of the temp table to read from
+   * @param isSelfReferencingRoot indicates whether root is self referencing or not
    * @return sql statement for fetching unique records
    */
   public static String sqlForUniqueRecords(HierarchyToRelationalConfig config, Row root,
-                                           String tableName, boolean includeRootRecord) {
+                                           String tableName, boolean isSelfReferencingRoot) {
     // parent field value of root record
     Object parentFieldValue = root.get(root.fieldIndex(config.parentField));
-    if (includeRootRecord) {
-      return String.format("select %s from %s union select %s as %s ",
-                           config.childField, tableName,
-                           parentFieldValue, config.childField);
+    if (isSelfReferencingRoot) {
+      return String.format("select %s from %s", config.childField, tableName);
     }
-    return String.format("select %s from %s", config.childField, tableName);
+    return String.format("select %s from %s union select %s as %s ", config.childField, tableName,
+                         parentFieldValue, config.childField);
   }
 
   /**

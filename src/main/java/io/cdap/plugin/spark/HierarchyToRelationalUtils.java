@@ -85,7 +85,7 @@ public class HierarchyToRelationalUtils {
     boolean isSelfReferencingRoot = root.getAs(config.parentField).equals(root.getAs(config.childField));
 
     Dataset<Row> uniqueRecords = data.sqlContext().sql(
-      SQLUtils.sqlForUniqueRecords(config, root, SQLUtils.NAME_HIERARCHY_TABLE, !isSelfReferencingRoot));
+      SQLUtils.sqlForUniqueRecords(config, root, SQLUtils.NAME_HIERARCHY_TABLE, isSelfReferencingRoot));
     // Fetch on child id's from the input dataset
     Dataset<Row> leafRecords = data.sqlContext().sql(
       SQLUtils.sqlStatementForLeafRecords(config, SQLUtils.NAME_HIERARCHY_TABLE));
@@ -120,6 +120,8 @@ public class HierarchyToRelationalUtils {
    * @param parentRow  row for which to extract the subtree
    * @param data       reference to input dataset
    * @param sqlContext reference to {@link SQLContext}
+   * @param excludeSelfReferencingRoot indicates whether current record is a self referencing root that should be
+   *                                   excluded from being generated as branch root (used only for root record)
    * @return dataset reference with all subtree rows for a given row
    * @throws Exception raises exception if max depth is exceeded
    */
