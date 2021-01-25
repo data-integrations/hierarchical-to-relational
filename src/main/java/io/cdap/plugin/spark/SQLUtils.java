@@ -35,13 +35,26 @@ public class SQLUtils {
   /**
    * Generate SQL statement for fetching root element
    *
-   * @param config {@link HierarchyToRelationalConfig}
+   * @param config    {@link HierarchyToRelationalConfig}
    * @param tableName table name of the input dataset
    * @return sql string for fetching root record
    */
   public static String sqlStatementForRoot(HierarchyToRelationalConfig config, String tableName) {
     String additionalFieldsForRoot = getAdditionalFieldsForRoot(config);
-    return String.format("select *, %s from %s where %s not in (select %s from %s)",
+    return String.format("select *, %s from %s where %s=%s",
+                         additionalFieldsForRoot, tableName, config.parentField, config.childField);
+  }
+
+  /**
+   * Generates sql statement for fetching branches under root from tree
+   *
+   * @param config    {@link HierarchyToRelationalConfig}
+   * @param tableName table name of the input dataset
+   * @return sql string for fetching branches under root from tree
+   */
+  public static String sqlStatementForFirstBranchOfRoot(HierarchyToRelationalConfig config, String tableName) {
+    String additionalFieldsForRoot = getAdditionalFieldsForRoot(config);
+    return String.format("select *, %s from %s where %s not in (select %s from %s) LIMIT 1",
                          additionalFieldsForRoot, tableName, config.parentField, config.childField, tableName);
   }
 
@@ -63,14 +76,17 @@ public class SQLUtils {
    * @param config    {@link HierarchyToRelationalConfig}
    * @param root      {@link Row} root record
    * @param tableName {@link String} name of the temp table to read from
+   * @param isSelfReferencingRoot indicates whether root is self referencing or not
    * @return sql statement for fetching unique records
    */
   public static String sqlForUniqueRecords(HierarchyToRelationalConfig config, Row root,
-                                           String tableName) {
+                                           String tableName, boolean isSelfReferencingRoot) {
     // parent field value of root record
     Object parentFieldValue = root.get(root.fieldIndex(config.parentField));
-    return String.format("select %s from %s union select %s as %s ",
-                         config.childField, tableName,
+    if (isSelfReferencingRoot) {
+      return String.format("select %s from %s", config.childField, tableName);
+    }
+    return String.format("select %s from %s union select %s as %s ", config.childField, tableName,
                          parentFieldValue, config.childField);
   }
 
@@ -83,8 +99,10 @@ public class SQLUtils {
    */
   public static String sqlStatementForLeafRecords(HierarchyToRelationalConfig config,
                                                   String tableName) {
-    return String.format("select * from %s where %s not in (select %s from %s)", tableName, config.childField,
-                         config.parentField, tableName);
+    //ex: select * from hierarchy_table where ChildId not in (select ParentId from hierarchy_table)
+    // and ParentId!=ChildId
+    return String.format("select * from %s where %s not in (select %s from %s) and %s!=%s", tableName,
+                         config.childField, config.parentField, tableName, config.parentField, config.childField);
   }
 
   /**
@@ -129,15 +147,15 @@ public class SQLUtils {
    * @return {@link String} returns sql string for including additional fields
    */
   private static String sqlStatementForAdditionalFields(HierarchyToRelationalConfig config, int level) {
-    return String.format("%s as %s,'%s' as %s,'%s' as %s ", level, config.levelField, config.falseValueField,
-                         config.topField, config.falseValueField, config.bottomField);
+    return String.format("%s as %s,'%s' as %s,'%s' as %s ", level, config.getLevelField(), config.getFalseValueField(),
+                         config.getTopField(), config.getFalseValueField(), config.getBottomField());
   }
 
   public static String startQueryForRecursive(HierarchyToRelationalConfig config,
                                               String tableName, String parentId) {
     String additionalFields = sqlStatementForAdditionalFields(config, 1);
-    return String.format("select *, %s from %s where %s=%s", additionalFields, tableName,
-                         config.parentField, parentId);
+    return String.format("select *, %s from %s where %s=%s and %s!=%s", additionalFields, tableName,
+                         config.parentField, parentId, config.parentField, config.childField);
   }
 
   /**
@@ -153,10 +171,10 @@ public class SQLUtils {
                                       String treeTableName, String tableName) {
     String additionalFields = sqlStatementForAdditionalFields(conf, count);
     // example query string: select indirect.*, 1 as Level, false as Top, false as Bottom from vt_0_seed_1 direct,
-    // hierarchy_table indirect where direct.ChildId = indirect.ParentId
+    // hierarchy_table indirect where direct.ChildId = indirect.ParentId and indirect.ParentId!=indirect.ChildId
     return String.format("select indirect.*, %s FROM %s direct, %s indirect WHERE " +
-                           "direct.%s = indirect.%s", additionalFields, treeTableName, tableName, conf.childField,
-                         conf.parentField);
+                           "direct.%s = indirect.%s and indirect.%s != indirect.%s", additionalFields, treeTableName,
+                         tableName, conf.childField, conf.parentField, conf.parentField, conf.childField);
   }
 
   /**
@@ -173,12 +191,12 @@ public class SQLUtils {
    * Generate union select statement which will select all records and their appropriate additional fields
    * and values for a given branch
    *
-   * @param config              {@link HierarchyToRelationalConfig}
-   * @param parentId            {@link String} id of the parent record that will be the root of a branch
-   * @param index               level of the branch
-   * @param parentFields        sql string for selecting parent fields
-   * @param childFields         sql string for selecting child fields
-   * @param otherFields         other field of the record to include in the query
+   * @param config       {@link HierarchyToRelationalConfig}
+   * @param parentId     {@link String} id of the parent record that will be the root of a branch
+   * @param index        level of the branch
+   * @param parentFields sql string for selecting parent fields
+   * @param childFields  sql string for selecting child fields
+   * @param otherFields  other field of the record to include in the query
    * @return sql string to include records from a given level in the branch
    */
   public static String unionSqlStatement(HierarchyToRelationalConfig config, String parentId,

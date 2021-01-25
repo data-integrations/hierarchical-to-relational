@@ -80,3 +80,32 @@ Plugin will generate the following output:
 |4|4|Vegetables|Vegetables|C|50|0|No|No|
 |4|4|Vegetables|Onion|E|30|1|No|Yes|
 |6|6|Onion|Onion|E|30|0|No|Yes|
+
+The dataset below is similar with the previous example with the only change of having root record
+where root record has a self link dataset (record with identical ParentId and ChildId).
+
+|ParentId|ChildId|ParentProduct|ChildProduct|Supplier|Sales|
+|--------|-------|-------------|------------|--------|-----|
+|1|1|Groceries|Groceries|A|0|
+|1|2|Groceries|Produce|A|50|
+|1|3|Groceries|Dairy|B|40|
+|2|4|Produce|Vegetables|C|50|
+|4|6|Vegetables|Onion|E|30|
+
+With the same configuration as in previous example the plugin will generate the same output with
+exception on root record where values are carried from input data instead of being generated:
+
+|ParentId|ChildId|ParentProduct|ChildProduct|Supplier|Sales|Level|Root|Leaf|
+|--------|-------|-------------|------------|--------|-----|-----|--------|-----------|
+|1|1|Groceries|Groceries|A|0|0|Yes|No|
+|1|2|Groceries|Produce|A|50|1|No|No|
+|1|3|Groceries|Dairy|B|40|1|No|Yes|
+|1|4|Groceries|Vegetables|C|50|2|No|No|
+|1|6|Groceries|Onion|E|30|3|No|Yes|
+|2|2|Produce|Produce|A|50|0|No|No|
+|2|4|Produce|Vegetables|C|50|1|No|No|
+|2|6|Produce|Onion|E|30|2|No|Yes|
+|3|3|Dairy|Dairy|B|40|0|No|Yes|
+|4|4|Vegetables|Vegetables|C|50|0|No|No|
+|4|4|Vegetables|Onion|E|30|1|No|Yes|
+|6|6|Onion|Onion|E|30|0|No|Yes|

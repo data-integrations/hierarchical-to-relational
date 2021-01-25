@@ -134,12 +134,12 @@ public class HierarchyToRelationalConfig extends PluginConfig {
     }
     if (!Strings.isNullOrEmpty(PARENT_CHILD_MAPPING_FIELD)) {
       Map<String, String> parentChildMapping = getParentChildMapping();
-      if (parentChildMapping.containsKey(parentField)) {
+      if (parentChildMapping.containsKey(parentField) || parentChildMapping.containsValue(parentField)) {
         collector.addFailure("Parent key field found mapping.",
                              "Parent key field cannot be part of parent-> child mapping.")
           .withConfigProperty(PARENT_CHILD_MAPPING_FIELD);
       }
-      if (parentChildMapping.containsKey(childField)) {
+      if (parentChildMapping.containsKey(childField) || parentChildMapping.containsValue(childField)) {
         collector.addFailure("Child key field found mapping.",
                              "Child key field cannot be part of parent-> child mapping.")
           .withConfigProperty(PARENT_CHILD_MAPPING_FIELD);
@@ -244,9 +244,9 @@ public class HierarchyToRelationalConfig extends PluginConfig {
         fields.add(field);
       }
     }
-    fields.add(Schema.Field.of(levelField, Schema.of(Schema.Type.INT)));
-    fields.add(Schema.Field.of(topField, Schema.of(Schema.Type.STRING)));
-    fields.add(Schema.Field.of(bottomField, Schema.of(Schema.Type.STRING)));
+    fields.add(Schema.Field.of(getLevelField(), Schema.of(Schema.Type.INT)));
+    fields.add(Schema.Field.of(getTopField(), Schema.of(Schema.Type.STRING)));
+    fields.add(Schema.Field.of(getBottomField(), Schema.of(Schema.Type.STRING)));
     return Schema.recordOf("record", fields);
   }
 
@@ -261,7 +261,7 @@ public class HierarchyToRelationalConfig extends PluginConfig {
     Map<String, String> parentChildMapping = getParentChildMapping();
     return fields.stream().map(field -> field.getName())
       .filter(fieldName -> !(parentChildMapping.containsKey(fieldName) ||
-      parentChildMapping.containsValue(fieldName) || fieldName.equals(parentField) || fieldName.equals(childField)))
+        parentChildMapping.containsValue(fieldName) || fieldName.equals(parentField) || fieldName.equals(childField)))
       .collect(Collectors.toList());
   }
 }
