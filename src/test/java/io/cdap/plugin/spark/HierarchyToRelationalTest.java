@@ -245,9 +245,10 @@ public class HierarchyToRelationalTest extends HydratorTestBase {
   @Test
   public void testConfigWithDefaultValues() throws NoSuchFieldException {
     HierarchyToRelationalConfig config = new HierarchyToRelationalConfig();
-    FieldSetter.setField(config, HierarchyToRelationalConfig.class.getDeclaredField("parentField"),"ParentId");
-    FieldSetter.setField(config, HierarchyToRelationalConfig.class.getDeclaredField("childField"),"ChildId");
-    FieldSetter.setField(config, HierarchyToRelationalConfig.class.getDeclaredField("parentChildMappingField"),"ParentProduct=ChildProduct");
+    FieldSetter.setField(config, HierarchyToRelationalConfig.class.getDeclaredField("parentField"), "ParentId");
+    FieldSetter.setField(config, HierarchyToRelationalConfig.class.getDeclaredField("childField"), "ChildId");
+    FieldSetter.setField(config, HierarchyToRelationalConfig.class.getDeclaredField("parentChildMappingField"),
+                         "ParentProduct=ChildProduct");
     MockFailureCollector collector = new MockFailureCollector();
     config.validate(collector);
     Assert.assertEquals(0, collector.getValidationFailures().size());
