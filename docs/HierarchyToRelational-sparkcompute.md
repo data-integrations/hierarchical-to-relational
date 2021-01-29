@@ -7,6 +7,10 @@ Provides the ability to flatten a hierarchical data model into a relational mode
 Use Case
 --------
 This plugin can be used when user needs to Flatten a hierarchical data model to a relational model.
+It expects incoming records to represent a direct parent-child relationship from one element to another.
+The input data can contain multiple root elements, but must not contain any cycles.
+The plugin will flatten the hierarchy such that there is an output record from each element to itself and
+to all of its descendents. Each output record will include the distance from the element to its descendent.
 
 Properties
 ----------
@@ -15,25 +19,30 @@ Should always contain a single, non-null root element in the hierarchy
 
 **Child field:** Specifies the field from the input schema that should be used as the child in the hierarchical model.
 
-**Parent -> Child fields mapping:** Specifies parent child field mapping for fields that require swapping parent 
-fields with tree/branch root fields.
+**Parent -> Child fields mapping:** Specifies a parent-child relationship between fields in the input. This is used
+to indicate that some of the input fields are attributes of the parent while some are attributes of the child. This
+is used during the flattening process to set the right value for the data fields.
 
-**Level Field Name:** The name of the field that should contain the level in the hierarchy starting at a particular node
-in the tree. The level is calculated as a distance of a node to a particular parent node in the tree. Default to `Level`.
+**Level Field Name:** The name of the field that should contain the level in the hierarchy starting at a particular
+element in the tree. The level is the distance from the parent to the child. If there are multiple paths from
+a parent to a child, only a single record is output, where the level is set to the minimum level of all paths. 
 
 **Top Field Name:** The name of the field that determines whether a node is the root element or the top-most element in
-the hierarchy. The input data should always contain a single non-null root node. For that node, this field is true,
-while it is marked false for all other nodes in the hierarchy. Defaults to `Top`.
+the hierarchy. The input data should always contain at least one non-null root node. For that node, this field is true,
+while it is marked false for all other nodes in the hierarchy. This will only be true when both the parent and child
+are a root element. It will be false when the parent is a root but the child is not.
 
 **Bottom Field Name:** The name of the field that determines whether a node is a leaf element or the bottom-most element
-in the hierarchy. The input data can contain multiple leaf nodes. Defaults to `Bottom`.
+in the hierarchy. The input data can contain multiple leaf nodes. This will be true whenever the child is a leaf element,
+even if the parent is not a leaf.
 
-**True value:** The value that denotes truth in the Top and Bottom fields. Defaults to `Y`.
+**True value:** The value that denotes truth in the Top and Bottom fields.
 
-**False value:** The value that denotes false in the Top and Bottom fields. Defaults to `N`.
+**False value:** The value that denotes false in the Top and Bottom fields.
 
 **Max depth:** The maximum depth upto which the data should be flattened. If a node is reached at a deeper level, 
-an error will be thrown. Defaults to `50`.
+an error will be thrown.
+
 
 Example
 -------
@@ -64,7 +73,7 @@ With the following configuration:
 
 **False value**: `No`
 
-Plugin will generate the following output:
+the following output is generated:
 
 |ParentId|ChildId|ParentProduct|ChildProduct|Supplier|Sales|Level|Root|Leaf|
 |--------|-------|-------------|------------|--------|-----|-----|--------|-----------|
@@ -81,8 +90,13 @@ Plugin will generate the following output:
 |4|4|Vegetables|Onion|E|30|1|No|Yes|
 |6|6|Onion|Onion|E|30|0|No|Yes|
 
-The dataset below is similar with the previous example with the only change of having root record
-where root record has a self link dataset (record with identical ParentId and ChildId).
+Note that the ParentProduct and ChildProduct are set appropriately for the self referencing rows.
+For example, when the ParentID and ChildId is 1, the ParentProduct and ChildProduct fields are set to
+'Groceries'. This is because there is a parent -> child mapping from ParentProduct to ChildProduct.
+Without this mapping, both the ParentProduct and ChildProduct fields would be set to null for that row.
+
+The dataset below is similar to the previous example. The only difference is there is a record in the
+input where the ParentId and ChildId are both 1.
 
 |ParentId|ChildId|ParentProduct|ChildProduct|Supplier|Sales|
 |--------|-------|-------------|------------|--------|-----|
@@ -92,8 +106,9 @@ where root record has a self link dataset (record with identical ParentId and Ch
 |2|4|Produce|Vegetables|C|50|
 |4|6|Vegetables|Onion|E|30|
 
-With the same configuration as in previous example the plugin will generate the same output with
-exception on root record where values are carried from input data instead of being generated:
+With the same configuration settings, the plugin will generate almost the same output.
+The difference is on the root record, where the Supplier and Sales fields are taken from the
+input data instead of being null as in the previous example.
 
 |ParentId|ChildId|ParentProduct|ChildProduct|Supplier|Sales|Level|Root|Leaf|
 |--------|-------|-------------|------------|--------|-----|-----|--------|-----------|

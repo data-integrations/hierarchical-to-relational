@@ -6,7 +6,7 @@
   "display-name" : "Hierarchy to Relational",
   "configuration-groups": [
     {
-      "label": "Hierarchy to Relational Configuration",
+      "label": "Basic",
       "properties": [
         {
           "label": "Parent field",
