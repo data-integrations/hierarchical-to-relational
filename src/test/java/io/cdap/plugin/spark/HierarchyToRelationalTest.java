@@ -31,7 +31,6 @@ import io.cdap.cdap.etl.mock.validation.MockFailureCollector;
 import io.cdap.cdap.etl.proto.v2.ETLBatchConfig;
 import io.cdap.cdap.etl.proto.v2.ETLPlugin;
 import io.cdap.cdap.etl.proto.v2.ETLStage;
-import io.cdap.cdap.format.StructuredRecordStringConverter;
 import io.cdap.cdap.proto.ProgramRunStatus;
 import io.cdap.cdap.proto.artifact.AppRequest;
 import io.cdap.cdap.proto.id.ApplicationId;
@@ -48,15 +47,15 @@ import org.junit.ClassRule;
 import org.junit.Test;
 import org.mockito.internal.util.reflection.FieldSetter;
 
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
-import java.util.stream.Collectors;
 
 public class HierarchyToRelationalTest extends HydratorTestBase {
   @ClassRule
@@ -143,17 +142,118 @@ public class HierarchyToRelationalTest extends HydratorTestBase {
     fields.add(Schema.Field.of("levelField", Schema.of(Schema.Type.INT)));
     fields.add(Schema.Field.of("topField", Schema.of(Schema.Type.STRING)));
     fields.add(Schema.Field.of("bottomField", Schema.of(Schema.Type.STRING)));
-    return Schema.recordOf("record", fields);
+    return Schema.recordOf("x_flattened", fields);
   }
 
-  private List<String> convertStructuredRecordListToJson(List<StructuredRecord> structuredRecordList)
-    throws IOException {
-    List<String> result = new ArrayList<>();
-    for (StructuredRecord structuredRecord : structuredRecordList) {
-      String s = StructuredRecordStringConverter.toJsonString(structuredRecord);
-      result.add(s);
-    }
-    return result.stream().sorted().collect(Collectors.toList());
+  @Test
+  public void testMultipleRoots() throws Exception {
+    Schema schema = Schema.recordOf("x",
+                                    Schema.Field.of("parent", Schema.of(Schema.Type.STRING)),
+                                    Schema.Field.of("child", Schema.of(Schema.Type.STRING)));
+    Map<String, String> properties = new HashMap<>();
+    properties.put("parentField", "parent");
+    properties.put("childField", "child");
+    String inputDataset = UUID.randomUUID().toString();
+    String outputDateset = UUID.randomUUID().toString();
+    ETLBatchConfig config = ETLBatchConfig.builder()
+      .addStage(new ETLStage("source", MockSource.getPlugin(inputDataset, schema)))
+      .addStage(new ETLStage("flatten", new ETLPlugin("HierarchyToRelational",
+                                                      SparkCompute.PLUGIN_TYPE, properties)))
+      .addStage(new ETLStage("sink", MockSink.getPlugin(outputDateset)))
+      .addConnection("source", "flatten")
+      .addConnection("flatten", "sink")
+      .build();
+
+    AppRequest<ETLBatchConfig> appRequest = new AppRequest<>(
+      new ArtifactSummary(APP_ARTIFACT_PIPELINE.getName(), APP_ARTIFACT_PIPELINE.getVersion()), config);
+    ApplicationId appId = NamespaceId.DEFAULT.app("multipath");
+    ApplicationManager appManager = deployApplication(appId, appRequest);
+
+    /*
+            |--> 2 --> 3 --|
+        1 --|              |--> 6
+            |--> 4 --|     |
+                     |-----|
+                 5 --|
+     */
+    List<StructuredRecord> input = new ArrayList<>();
+    input.add(StructuredRecord.builder(schema).set("parent", "1").set("child", "2").build());
+    input.add(StructuredRecord.builder(schema).set("parent", "1").set("child", "4").build());
+    input.add(StructuredRecord.builder(schema).set("parent", "2").set("child", "3").build());
+    input.add(StructuredRecord.builder(schema).set("parent", "3").set("child", "6").build());
+    input.add(StructuredRecord.builder(schema).set("parent", "4").set("child", "6").build());
+    input.add(StructuredRecord.builder(schema).set("parent", "5").set("child", "6").build());
+    DataSetManager<Table> inputManager = getDataset(inputDataset);
+    MockSource.writeInput(inputManager, input);
+
+    WorkflowManager workflowManager = appManager.getWorkflowManager(SmartWorkflow.NAME);
+    workflowManager.startAndWaitForRun(ProgramRunStatus.COMPLETED, 3, TimeUnit.MINUTES);
+
+    DataSetManager<Table> outputManager = getDataset(outputDateset);
+    Set<StructuredRecord> output = new HashSet<>(MockSink.readOutput(outputManager));
+
+    Schema expectedSchema = Schema.recordOf("x_flattened",
+                                            Schema.Field.of("parent", Schema.of(Schema.Type.STRING)),
+                                            Schema.Field.of("child", Schema.of(Schema.Type.STRING)),
+                                            Schema.Field.of("Level", Schema.of(Schema.Type.INT)),
+                                            Schema.Field.of("Top", Schema.of(Schema.Type.STRING)),
+                                            Schema.Field.of("Bottom", Schema.of(Schema.Type.STRING)));
+    /*
+            |--> 2 --> 3 --|
+        1 --|              |--> 6
+            |--> 4 --|     |
+                     |-----|
+                 5 --|
+
+        should result in:
+
+        1->1, 1->2, 1->3, 1->4, 1->6
+        2->2, 2->3, 2->6
+        3->3, 3->6
+        4->4, 4->6
+        5->5, 5->6
+        6->6
+
+        There are two paths from 1->6, they should be deduped with the minimum level chosen
+     */
+    Set<StructuredRecord> expected = new HashSet<>();
+    expected.add(StructuredRecord.builder(expectedSchema)
+                   .set("parent", "1").set("child", "1").set("Level", 0).set("Top", "Y").set("Bottom", "N").build());
+    expected.add(StructuredRecord.builder(expectedSchema)
+                   .set("parent", "1").set("child", "2").set("Level", 1).set("Top", "N").set("Bottom", "N").build());
+    expected.add(StructuredRecord.builder(expectedSchema)
+                   .set("parent", "1").set("child", "3").set("Level", 2).set("Top", "N").set("Bottom", "N").build());
+    expected.add(StructuredRecord.builder(expectedSchema)
+                   .set("parent", "1").set("child", "4").set("Level", 1).set("Top", "N").set("Bottom", "N").build());
+    expected.add(StructuredRecord.builder(expectedSchema)
+                   .set("parent", "1").set("child", "6").set("Level", 2).set("Top", "N").set("Bottom", "Y").build());
+
+    expected.add(StructuredRecord.builder(expectedSchema)
+                   .set("parent", "2").set("child", "2").set("Level", 0).set("Top", "N").set("Bottom", "N").build());
+    expected.add(StructuredRecord.builder(expectedSchema)
+                   .set("parent", "2").set("child", "3").set("Level", 1).set("Top", "N").set("Bottom", "N").build());
+    expected.add(StructuredRecord.builder(expectedSchema)
+                   .set("parent", "2").set("child", "6").set("Level", 2).set("Top", "N").set("Bottom", "Y").build());
+
+    expected.add(StructuredRecord.builder(expectedSchema)
+                   .set("parent", "3").set("child", "3").set("Level", 0).set("Top", "N").set("Bottom", "N").build());
+    expected.add(StructuredRecord.builder(expectedSchema)
+                   .set("parent", "3").set("child", "6").set("Level", 1).set("Top", "N").set("Bottom", "Y").build());
+
+    expected.add(StructuredRecord.builder(expectedSchema)
+                   .set("parent", "4").set("child", "4").set("Level", 0).set("Top", "N").set("Bottom", "N").build());
+    expected.add(StructuredRecord.builder(expectedSchema)
+                   .set("parent", "4").set("child", "6").set("Level", 1).set("Top", "N").set("Bottom", "Y").build());
+
+    expected.add(StructuredRecord.builder(expectedSchema)
+                   .set("parent", "5").set("child", "5").set("Level", 0).set("Top", "Y").set("Bottom", "N").build());
+    expected.add(StructuredRecord.builder(expectedSchema)
+                   .set("parent", "5").set("child", "6").set("Level", 1).set("Top", "N").set("Bottom", "Y").build());
+
+    expected.add(StructuredRecord.builder(expectedSchema)
+                   .set("parent", "6").set("child", "6").set("Level", 0).set("Top", "N").set("Bottom", "Y").build());
+
+    Assert.assertEquals(expected, output);
   }
 
   @Test
@@ -193,10 +293,7 @@ public class HierarchyToRelationalTest extends HydratorTestBase {
     DataSetManager<Table> outputManager = getDataset(outputDateset);
     List<StructuredRecord> output = MockSink.readOutput(outputManager);
 
-    List<String> expected = convertStructuredRecordListToJson(EXPECTED_OUTPUT);
-    List<String> result = convertStructuredRecordListToJson(output);
-
-    Assert.assertEquals(expected, result);
+    Assert.assertEquals(new HashSet<>(EXPECTED_OUTPUT), new HashSet<>(output));
   }
 
   @Test
@@ -236,24 +333,21 @@ public class HierarchyToRelationalTest extends HydratorTestBase {
     DataSetManager<Table> outputManager = getDataset(outputDateset);
     List<StructuredRecord> output = MockSink.readOutput(outputManager);
 
-    List<String> expected = convertStructuredRecordListToJson(EXPECTED_OUTPUT);
-    List<String> result = convertStructuredRecordListToJson(output);
-
-    Assert.assertEquals(expected, result);
+    Assert.assertEquals(new HashSet<>(EXPECTED_OUTPUT), new HashSet<>(output));
   }
 
   @Test
   public void testConfigWithDefaultValues() throws NoSuchFieldException {
-    HierarchyToRelationalConfig config = new HierarchyToRelationalConfig();
-    FieldSetter.setField(config, HierarchyToRelationalConfig.class.getDeclaredField("parentField"), "ParentId");
-    FieldSetter.setField(config, HierarchyToRelationalConfig.class.getDeclaredField("childField"), "ChildId");
-    FieldSetter.setField(config, HierarchyToRelationalConfig.class.getDeclaredField("parentChildMappingField"),
+    HierarchyConfig config = new HierarchyConfig();
+    FieldSetter.setField(config, HierarchyConfig.class.getDeclaredField("parentField"), "ParentId");
+    FieldSetter.setField(config, HierarchyConfig.class.getDeclaredField("childField"), "ChildId");
+    FieldSetter.setField(config, HierarchyConfig.class.getDeclaredField("parentChildMappingField"),
                          "ParentProduct=ChildProduct");
     MockFailureCollector collector = new MockFailureCollector();
     config.validate(collector);
     Assert.assertEquals(0, collector.getValidationFailures().size());
-    Assert.assertEquals("Y", config.getTrueValueField());
-    Assert.assertEquals("N", config.getFalseValueField());
+    Assert.assertEquals("Y", config.getTrueValue());
+    Assert.assertEquals("N", config.getFalseValue());
     Assert.assertEquals("Top", config.getTopField());
     Assert.assertEquals("Bottom", config.getBottomField());
     Assert.assertEquals("Level", config.getLevelField());

@@ -46,12 +46,10 @@ public class HierarchyToRelational extends SparkCompute<StructuredRecord, Struct
 
   public static final String PLUGIN_NAME = "HierarchyToRelational";
 
-  private final HierarchyToRelationalConfig config;
+  private final HierarchyConfig config;
   private Schema outputSchema = null;
-  private List<String> nonMappedFields; // list of non-mapped fields in schema
-  private Map<String, String> mappedFields;
 
-  public HierarchyToRelational(HierarchyToRelationalConfig config) {
+  public HierarchyToRelational(HierarchyConfig config) {
     this.config = config;
   }
 
@@ -70,11 +68,9 @@ public class HierarchyToRelational extends SparkCompute<StructuredRecord, Struct
   }
 
   @Override
-  public void initialize(SparkExecutionPluginContext context) throws Exception {
+  public void initialize(SparkExecutionPluginContext context) {
     Schema inputSchema = context.getInputSchema();
     outputSchema = config.generateOutputSchema(inputSchema);
-    mappedFields = config.getParentChildMapping();
-    nonMappedFields = config.getNonMappedFields(inputSchema);
   }
 
   /**
@@ -103,11 +99,8 @@ public class HierarchyToRelational extends SparkCompute<StructuredRecord, Struct
   }
 
   @Override
-  public JavaRDD<StructuredRecord> transform(SparkExecutionPluginContext sparkExecutionPluginContext,
-                                             JavaRDD<StructuredRecord> javaRDD)
-    throws Exception {
-    return new HierarchyToRelationalUtils(config, outputSchema, nonMappedFields, mappedFields)
-      .transform(sparkExecutionPluginContext, javaRDD);
+  public JavaRDD<StructuredRecord> transform(SparkExecutionPluginContext context, JavaRDD<StructuredRecord> javaRDD) {
+    return new HierarchyFlattener(config).flatten(context, javaRDD, outputSchema);
   }
 
 }

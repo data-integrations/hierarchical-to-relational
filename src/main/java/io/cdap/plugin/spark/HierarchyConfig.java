@@ -36,7 +36,7 @@ import javax.annotation.Nullable;
 /**
  * Config class for HierarchyToRelational.
  */
-public class HierarchyToRelationalConfig extends PluginConfig {
+public class HierarchyConfig extends PluginConfig {
 
   private static final String PARENT_FIELD = "parentField";
   private static final String CHILD_FIELD = "childField";
@@ -52,33 +52,34 @@ public class HierarchyToRelationalConfig extends PluginConfig {
   private static final String FALSE_VALUE_FIELD = "falseValueField";
   private static final String FALSE_VALUE_FIELD_DEFAULT_VALUE = "N";
   private static final String MAX_DEPTH_FIELD = "maxDepthField";
-  private static final String MAX_DEPTH_FIELD_DEFAULT_VALUE = "50";
+  private static final int MAX_DEPTH_FIELD_DEFAULT_VALUE = 50;
 
 
   @Name(PARENT_FIELD)
   @Description("Specifies the field from the input schema that should be used as the parent in the " +
     "hierarchical model. Should always contain a single, non-null root element in the hierarchy.")
   @Macro
-  public String parentField;
+  private String parentField;
 
   @Name(CHILD_FIELD)
   @Description("Specifies the field from the input schema that should be used as the child in the hierarchical " +
     "model.")
   @Macro
-  public String childField;
+  private String childField;
 
   @Name(PARENT_CHILD_MAPPING_FIELD)
   @Description("Specifies parent child field mapping for fields that require swapping parent fields with tree/branch" +
     " root fields. ")
   @Macro
-  public String parentChildMappingField;
+  @Nullable
+  private String parentChildMappingField;
 
   @Name(LEVEL_FIELD)
   @Description("The name of the field that should contain the Yes level in the hierarchy starting at a particular " +
     "node in the tree. The level is calculated as a distance of a node to a particular parent node in the tree.")
   @Macro
   @Nullable
-  public String levelField;
+  private String levelField;
 
   @Name(TOP_FIELD)
   @Description("The name of the field that determines whether a node is the root element or the top-most element" +
@@ -86,38 +87,37 @@ public class HierarchyToRelationalConfig extends PluginConfig {
     " field is true, while it is marked false for all other nodes in the hierarchy.")
   @Macro
   @Nullable
-  public String topField;
+  private String topField;
 
   @Name(BOTTOM_FIELD)
   @Description("The name of the field that determines whether a node is a leaf element or the bottom-most " +
     "element in the hierarchy. The input data can contain multiple leaf nodes.")
   @Macro
   @Nullable
-  public String bottomField;
+  private String bottomField;
 
   @Name(TRUE_VALUE_FIELD)
   @Description("The value that denotes truth in the Top and Bottom fields.")
   @Macro
   @Nullable
-  public String trueValueField;
+  private String trueValue;
 
   @Name(FALSE_VALUE_FIELD)
   @Description("The value that denotes false in the Top and Bottom fields")
   @Macro
   @Nullable
-  public String falseValueField;
+  private String falseValue;
 
   @Name(MAX_DEPTH_FIELD)
   @Description("The maximum depth upto which the data should be flattened. If a node is reached at a deeper" +
     " level, an error should be thrown.")
   @Macro
   @Nullable
-  public String maxDepthField;
+  private Integer maxDepth;
 
   public boolean requiredFieldsContainMacro() {
-    return containsMacro(PARENT_FIELD) || containsMacro(CHILD_FIELD) || containsMacro(PARENT_CHILD_MAPPING_FIELD)
-      || containsMacro(LEVEL_FIELD) || containsMacro(TOP_FIELD) || containsMacro(LEVEL_FIELD) ||
-      containsMacro(BOTTOM_FIELD);
+    return containsMacro(PARENT_FIELD) || containsMacro(CHILD_FIELD) || containsMacro(LEVEL_FIELD) ||
+      containsMacro(TOP_FIELD) || containsMacro(LEVEL_FIELD) || containsMacro(BOTTOM_FIELD);
   }
 
   public void validate(FailureCollector collector) {
@@ -149,13 +149,9 @@ public class HierarchyToRelationalConfig extends PluginConfig {
       collector.addFailure("Child field is null/empty.", "Please provide valid child field.")
         .withConfigProperty(CHILD_FIELD);
     }
-    if (!Strings.isNullOrEmpty(maxDepthField)) {
-      try {
-        Integer.parseInt(maxDepthField);
-      } catch (Exception e) {
-        collector.addFailure("Invalid max depth field.", "Please provide positive integer as max depth field.")
-          .withConfigProperty(CHILD_FIELD);
-      }
+    if (maxDepth != null && maxDepth < 1) {
+      collector.addFailure("Invalid max depth.", "Max depth must be at least 1.")
+        .withConfigProperty(CHILD_FIELD);
     }
     collector.getOrThrowException();
   }
@@ -189,25 +185,22 @@ public class HierarchyToRelationalConfig extends PluginConfig {
     return bottomField;
   }
 
-  public String getTrueValueField() {
-    if (Strings.isNullOrEmpty(trueValueField)) {
+  public String getTrueValue() {
+    if (Strings.isNullOrEmpty(trueValue)) {
       return TRUE_VALUE_FIELD_DEFAULT_VALUE;
     }
-    return trueValueField;
+    return trueValue;
   }
 
-  public String getFalseValueField() {
-    if (Strings.isNullOrEmpty(falseValueField)) {
+  public String getFalseValue() {
+    if (Strings.isNullOrEmpty(falseValue)) {
       return FALSE_VALUE_FIELD_DEFAULT_VALUE;
     }
-    return falseValueField;
+    return falseValue;
   }
 
-  public String getMaxDepthField() {
-    if (Strings.isNullOrEmpty(maxDepthField)) {
-      return MAX_DEPTH_FIELD_DEFAULT_VALUE;
-    }
-    return maxDepthField;
+  public int getMaxDepth() {
+    return maxDepth == null ? MAX_DEPTH_FIELD_DEFAULT_VALUE : maxDepth;
   }
 
   public Map<String, String> getParentChildMapping() {
@@ -247,7 +240,7 @@ public class HierarchyToRelationalConfig extends PluginConfig {
     fields.add(Schema.Field.of(getLevelField(), Schema.of(Schema.Type.INT)));
     fields.add(Schema.Field.of(getTopField(), Schema.of(Schema.Type.STRING)));
     fields.add(Schema.Field.of(getBottomField(), Schema.of(Schema.Type.STRING)));
-    return Schema.recordOf("record", fields);
+    return Schema.recordOf(inputSchema.getRecordName() + "_flattened", fields);
   }
 
   /**
