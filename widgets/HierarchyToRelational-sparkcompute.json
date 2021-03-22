@@ -70,6 +70,22 @@
           "name": "maxDepthField",
           "widget-type": "textbox",
           "default": 50
+        },
+        {
+          "label": "Perform an in-memory broadcast join",
+          "name": "broadcastJoin",
+          "widget-type": "toggle",
+          "widget-attributes": {
+            "default": "false",
+            "on": {
+              "value": "true",
+              "label": "True"
+            },
+            "off": {
+              "value": "false",
+              "label": "False"
+            }
+          }
         }
       ]
     }

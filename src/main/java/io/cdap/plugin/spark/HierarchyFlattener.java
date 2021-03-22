@@ -36,20 +36,22 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+import static org.apache.spark.sql.functions.broadcast;
+
 /**
  * Takes an RDD that represents a hierarchical structure and flattens it.
- *
+ * <p>
  * The input RDD is expected to edges in a tree, with each record containing an id for that node and the id of its
  * parent. The flattened RDD will contain rows denoting each node -> accessible child relationship, along with
  * additional information about that relationship. For example, if the input is:
- *
+ * <p>
  * parent:null, id:A  (A as root)
  * parent:A, id:B     (A -> B)
  * parent:B, id:C     (B -> C)
  * parent:B, id:D     (B -> D)
- *
+ * <p>
  * The output will be:
- *
+ * <p>
  * parent:A, id:A, depth:0, isTop:true, isBot:false
  * parent:A, id:B, depth:1, isTop:false, isBot:false
  * parent:A, id:C, depth:2, isTop:false, isBot:true
@@ -70,6 +72,7 @@ public class HierarchyFlattener {
   private final String trueStr;
   private final String falseStr;
   private final int maxLevel;
+  private final Boolean broadcastJoin;
   private final Map<String, String> parentChildMapping;
 
   public HierarchyFlattener(HierarchyConfig config) {
@@ -81,6 +84,7 @@ public class HierarchyFlattener {
     this.trueStr = config.getTrueValue();
     this.falseStr = config.getFalseValue();
     this.maxLevel = config.getMaxDepth();
+    this.broadcastJoin = config.isBroadcastJoin();
     this.parentChildMapping = config.getParentChildMapping();
   }
 
@@ -88,43 +92,43 @@ public class HierarchyFlattener {
    * Takes an input RDD and flattens it so that every possible ancestor to child relationship is present in the output.
    * Each output record also is annotated with whether the ancestor is a root node, whether the child is a leaf node,
    * and the distance from the ancestor to the child.
-   *
+   * <p>
    * Suppose the input data represents the hierarchy
-   *
-   *                      |--> 5
-   *             |--> 2 --|
-   *         1 --|        |--|
-   *             |--> 3      |--> 6
-   *                     4 --|
-   *
+   * <p>
+   * |--> 5
+   * |--> 2 --|
+   * 1 --|        |--|
+   * |--> 3      |--> 6
+   * 4 --|
+   * <p>
    * This would be represented with the following rows:
-   *
-   *   [1 -> 1]
-   *   [1 -> 2]
-   *   [1 -> 3]
-   *   [2 -> 5]
-   *   [2 -> 6]
-   *   [4 -> 4]
-   *   [4 -> 6]
-   *
+   * <p>
+   * [1 -> 1]
+   * [1 -> 2]
+   * [1 -> 3]
+   * [2 -> 5]
+   * [2 -> 6]
+   * [4 -> 4]
+   * [4 -> 6]
+   * <p>
    * and would generate the following output:
-   *
-   *   [1 -> 1, level:0, root:yes, leaf:no]
-   *   [1 -> 2, level:1, root:yes, leaf:no]
-   *   [1 -> 3, level:1, root:yes, leaf:no]
-   *   [1 -> 5, level:2, root:yes, leaf:yes]
-   *   [1 -> 6, level:2, root:yes, leaf:yes]
-   *   [2 -> 2, level:0, root:no, leaf:no]
-   *   [2 -> 5, level:1, root:no, leaf:yes]
-   *   [2 -> 6, level:1, root:no, leaf:yes]
-   *   [3 -> 3, level:0, root:no, leaf:yes]
-   *   [4 -> 4, level:0, root:yes, leaf:no]
-   *   [4 -> 6, level:1, root:yes, leaf:yes]
-   *   [5 -> 5, level:0, root:no, leaf:yes]
-   *   [6 -> 6, level:0, root:no, leaf:yes]
+   * <p>
+   * [1 -> 1, level:0, root:yes, leaf:no]
+   * [1 -> 2, level:1, root:yes, leaf:no]
+   * [1 -> 3, level:1, root:yes, leaf:no]
+   * [1 -> 5, level:2, root:yes, leaf:yes]
+   * [1 -> 6, level:2, root:yes, leaf:yes]
+   * [2 -> 2, level:0, root:no, leaf:no]
+   * [2 -> 5, level:1, root:no, leaf:yes]
+   * [2 -> 6, level:1, root:no, leaf:yes]
+   * [3 -> 3, level:0, root:no, leaf:yes]
+   * [4 -> 4, level:0, root:yes, leaf:no]
+   * [4 -> 6, level:1, root:yes, leaf:yes]
+   * [5 -> 5, level:0, root:no, leaf:yes]
+   * [6 -> 6, level:0, root:no, leaf:yes]
    *
    * @param context spark plugin context
-   * @param rdd input rdd representing a hierarchy
+   * @param rdd     input rdd representing a hierarchy
    * @return flattened hierarchy with level, root, and leaf information
    */
   public JavaRDD<StructuredRecord> flatten(SparkExecutionPluginContext context, JavaRDD<StructuredRecord> rdd,
@@ -133,15 +137,15 @@ public class HierarchyFlattener {
     SQLContext sqlContext = new SQLContext(context.getSparkContext());
     StructType sparkSchema = DataFrames.toDataType(schema);
     Dataset<Row> input = sqlContext.createDataFrame(rdd.map(record -> DataFrames.toRow(record, sparkSchema)).rdd(),
-                                                    sparkSchema);
+        sparkSchema);
     // cache the input so that the previous stages don't get re-processed
     input = input.persist(StorageLevel.DISK_ONLY());
 
     // field names without the parent and child fields.
     List<String> dataFieldNames = schema.getFields().stream()
-      .map(Schema.Field::getName)
-      .filter(name -> !name.equals(parentCol) && !name.equals(childCol))
-      .collect(Collectors.toList());
+        .map(Schema.Field::getName)
+        .filter(name -> !name.equals(parentCol) && !name.equals(childCol))
+        .collect(Collectors.toList());
 
     /*
        The approach is to take N passes through the hierarchy, where N is the maximum depth of the tree.
@@ -213,8 +217,8 @@ public class HierarchyFlattener {
     while (!isEmpty(currentLevel)) {
       if (level > maxLevel) {
         throw new IllegalStateException(
-          String.format("Exceeded maximum depth of %d. " +
-                          "Ensure there are no cycles in the hierarchy, or increase the max depth.", maxLevel));
+            String.format("Exceeded maximum depth of %d. " +
+                "Ensure there are no cycles in the hierarchy, or increase the max depth.", maxLevel));
       }
       LOG.info("Starting computation for level {}", level + 1);
 
@@ -235,7 +239,7 @@ public class HierarchyFlattener {
       // to remove ambiguity between common column names.
       columns[0] = new Column("current." + parentCol).as(parentCol);
       columns[1] = functions.when(new Column("input." + childCol).isNull(), new Column("current." + childCol))
-        .otherwise(new Column("input." + childCol)).as(childCol);
+          .otherwise(new Column("input." + childCol)).as(childCol);
       columns[2] = new Column(levelCol).plus(1).as(levelCol);
       columns[3] = functions.lit(falseStr).as(topCol);
       columns[4] = functions.when(new Column("input." + childCol).isNull(), 1).otherwise(0).as(botCol);
@@ -247,14 +251,24 @@ public class HierarchyFlattener {
           columns[i++] = new Column("current." + fieldName);
         } else {
           columns[i++] = functions.when(new Column("input." + childCol).isNull(), new Column("current." + fieldName))
-            .otherwise(new Column("input." + fieldName)).as(fieldName);
+              .otherwise(new Column("input." + fieldName)).as(fieldName);
         }
       }
-      Dataset<Row> nextLevel = currentLevel.alias("current")
-        .join(input.alias("input"),
-              new Column("current." + childCol).equalTo(new Column("input." + parentCol)),
-              "leftouter")
-        .select(columns);
+      Dataset<Row> nextLevel;
+      if (broadcastJoin) {
+        nextLevel = currentLevel.alias("current")
+            .join(broadcast(input.alias("input")),
+                new Column("current." + childCol).equalTo(new Column("input." + parentCol)),
+                "leftouter")
+            .select(columns);
+      } else {
+        nextLevel = currentLevel.alias("current")
+            .join(input.alias("input"),
+                new Column("current." + childCol).equalTo(new Column("input." + parentCol)),
+                "leftouter")
+            .select(columns);
+      }
+
       if (level == 0) {
         /*
            The first level, all nodes as x -> x, which will always join to themselves.
@@ -278,7 +292,7 @@ public class HierarchyFlattener {
            Where the x indicates a row that needs to be filtered out.
          */
         nextLevel = nextLevel.where(nextLevel.col(parentCol).notEqual(nextLevel.col(childCol))
-                                      .or(nextLevel.col(botCol).equalTo(1)));
+            .or(nextLevel.col(botCol).equalTo(1)));
       }
       flattened = flattened.union(nextLevel);
 
@@ -313,7 +327,7 @@ public class HierarchyFlattener {
        Note that for each leaf:1 row, there is a duplicate except it has leaf:0.
        These dupes are removed by grouping on [parent, child] and summing the leaf values.
        This is also where the leaf values are translated to their final strings instead of a 0 or 1.
-       If there are multiple paths from one node to another, they will also be deduplicated down to just a single
+       If there are multiple paths from one node to another, they will also be de-duplicated down to just a single
        path here, where the level is the minimum level.
 
          select
@@ -329,20 +343,20 @@ public class HierarchyFlattener {
     Column[] columns = new Column[schema.getFields().size()];
     columns[0] = functions.first(new Column(topCol)).as(topCol);
     columns[1] = functions.when(functions.max(new Column(botCol)).equalTo(0), falseStr)
-      .otherwise(trueStr).as(botCol);
+        .otherwise(trueStr).as(botCol);
     int i = 2;
     for (String fieldName : dataFieldNames) {
       columns[i++] = functions.first(new Column(fieldName)).as(fieldName);
     }
 
     flattened = flattened.groupBy(new Column(parentCol), new Column(childCol))
-      .agg(functions.min(new Column(levelCol)).as(levelCol), columns);
+        .agg(functions.min(new Column(levelCol)).as(levelCol), columns);
 
     // perform a final select to make sure fields are in the same order as expected.
     Column[] finalOutputColumns = outputSchema.getFields().stream()
-      .map(Schema.Field::getName)
-      .map(Column::new)
-      .collect(Collectors.toList()).toArray(new Column[outputSchema.getFields().size()]);
+        .map(Schema.Field::getName)
+        .map(Column::new)
+        .collect(Collectors.toList()).toArray(new Column[outputSchema.getFields().size()]);
     flattened = flattened.select(finalOutputColumns);
     return flattened.javaRDD().map(row -> DataFrames.fromRow(row, outputSchema));
   }
@@ -411,7 +425,7 @@ public class HierarchyFlattener {
       String mappedField = parentChildMapping.get(fieldName);
       if (mappedField != null) {
         columns[i++] = functions.when(isRoot, input.col(fieldName))
-          .otherwise(input.col(mappedField)).as(fieldName);
+            .otherwise(input.col(mappedField)).as(fieldName);
       } else {
         columns[i++] = input.col(fieldName);
       }
@@ -495,10 +509,19 @@ public class HierarchyFlattener {
        across the cluster, only to be dropped after the join completes.
      */
     Dataset<Row> children = input.select(new Column(childCol));
-    Dataset<Row> joined = input.alias("A").join(
-      children.alias("B"), new Column("A." + parentCol).equalTo(new Column("B." + childCol)), "leftouter")
-      .where(new Column("B." + childCol).isNull())
-      .select(columns);
+    Dataset<Row> joined;
+    if (broadcastJoin) {
+      joined = input.alias("A").join(
+          broadcast(children.alias("B")),
+          new Column("A." + parentCol).equalTo(new Column("B." + childCol)), "leftouter")
+          .where(new Column("B." + childCol).isNull())
+          .select(columns);
+    } else {
+      joined = input.alias("A").join(
+          children.alias("B"), new Column("A." + parentCol).equalTo(new Column("B." + childCol)), "leftouter")
+          .where(new Column("B." + childCol).isNull())
+          .select(columns);
+    }
     return joined;
   }
 

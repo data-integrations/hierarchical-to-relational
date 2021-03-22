@@ -54,6 +54,8 @@ public class HierarchyConfig extends PluginConfig {
   private static final String MAX_DEPTH_FIELD = "maxDepthField";
   private static final int MAX_DEPTH_FIELD_DEFAULT_VALUE = 50;
 
+  private static final String BROADCAST_JOIN_FIELD = "broadcastJoin";
+  private static final Boolean BROADCAST_JOIN_FIELD_DEFAULT_VALUE = Boolean.FALSE;
 
   @Name(PARENT_FIELD)
   @Description("Specifies the field from the input schema that should be used as the parent in the " +
@@ -97,7 +99,7 @@ public class HierarchyConfig extends PluginConfig {
   private String bottomField;
 
   @Name(TRUE_VALUE_FIELD)
-  @Description("The value that denotes truth in the Top and Bottom fields.")
+  @Description("The value that denotes true in the Top and Bottom fields.")
   @Macro
   @Nullable
   private String trueValue;
@@ -109,11 +111,15 @@ public class HierarchyConfig extends PluginConfig {
   private String falseValue;
 
   @Name(MAX_DEPTH_FIELD)
-  @Description("The maximum depth upto which the data should be flattened. If a node is reached at a deeper" +
-    " level, an error should be thrown.")
+  @Description("The maximum depth up to which the data should be flattened. If a node is reached at a deeper" +
+    " level, an error will be thrown.")
   @Macro
   @Nullable
   private Integer maxDepth;
+
+  @Name(BROADCAST_JOIN_FIELD)
+  @Description("Performs an in-memory broadcast join")
+  private Boolean broadcastJoin;
 
   public boolean requiredFieldsContainMacro() {
     return containsMacro(PARENT_FIELD) || containsMacro(CHILD_FIELD) || containsMacro(LEVEL_FIELD) ||
@@ -203,6 +209,10 @@ public class HierarchyConfig extends PluginConfig {
     return maxDepth == null ? MAX_DEPTH_FIELD_DEFAULT_VALUE : maxDepth;
   }
 
+  public boolean isBroadcastJoin() {
+    return broadcastJoin == null ? BROADCAST_JOIN_FIELD_DEFAULT_VALUE : broadcastJoin.booleanValue();
+  }
+
   public Map<String, String> getParentChildMapping() {
     Map<String, String> parentChildMap = new HashMap<>();
     if (Strings.isNullOrEmpty(parentChildMappingField)) {
@@ -252,7 +262,7 @@ public class HierarchyConfig extends PluginConfig {
   public List<String> getNonMappedFields(Schema inputSchema) {
     List<Schema.Field> fields = inputSchema.getFields();
     Map<String, String> parentChildMapping = getParentChildMapping();
-    return fields.stream().map(field -> field.getName())
+    return fields.stream().map(Schema.Field::getName)
       .filter(fieldName -> !(parentChildMapping.containsKey(fieldName) ||
         parentChildMapping.containsValue(fieldName) || fieldName.equals(parentField) || fieldName.equals(childField)))
       .collect(Collectors.toList());
