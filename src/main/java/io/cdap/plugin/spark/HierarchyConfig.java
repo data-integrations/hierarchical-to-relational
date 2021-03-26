@@ -38,9 +38,14 @@ import javax.annotation.Nullable;
  */
 public class HierarchyConfig extends PluginConfig {
 
+  // Hierarchy Configuration
   private static final String PARENT_FIELD = "parentField";
   private static final String CHILD_FIELD = "childField";
   private static final String PARENT_CHILD_MAPPING_FIELD = "parentChildMappingField";
+  private static final String START_WITH_FIELD = "startWith";
+  private static final String START_WITH_DEFAULT_VALUE = "";
+
+  // Advanced
   private static final String LEVEL_FIELD = "levelField";
   private static final String LEVEL_FIELD_DEFAULT_VALUE = "Level";
   private static final String TOP_FIELD = "topField";
@@ -54,9 +59,20 @@ public class HierarchyConfig extends PluginConfig {
   private static final String MAX_DEPTH_FIELD = "maxDepthField";
   private static final int MAX_DEPTH_FIELD_DEFAULT_VALUE = 50;
 
+  private static final String SIBLING_ORDER_FIELD = "siblingOrder";
+  private static final String SIBLING_ORDER_FIELD_DEFAULT_VALUE = "ASC";
+
   private static final String BROADCAST_JOIN_FIELD = "broadcastJoin";
   private static final Boolean BROADCAST_JOIN_FIELD_DEFAULT_VALUE = Boolean.FALSE;
 
+  private static final String MULTIPLE_VALUES_FIELD = "multipleValues";
+  private static final String CONNECT_BY_ROOT_FIELD = "connectByRoot";
+
+  private static final String FIELDS_TO_TRANSFORM = "fieldsToTransform";
+
+  private static final String KV_DROPDOWN = "propertyKVDropdown";
+
+  // Hierarchy Configuration
   @Name(PARENT_FIELD)
   @Description("Specifies the field from the input schema that should be used as the parent in the " +
     "hierarchical model. Should always contain a single, non-null root element in the hierarchy.")
@@ -73,9 +89,15 @@ public class HierarchyConfig extends PluginConfig {
   @Description("Specifies parent child field mapping for fields that require swapping parent fields with tree/branch" +
     " root fields. ")
   @Macro
-  @Nullable
   private String parentChildMappingField;
 
+  @Name(START_WITH_FIELD)
+  @Description("Expression defining where to start exploring the hierarchy from.")
+  @Macro
+  @Nullable
+  private String startWith;
+
+  // Advanced section
   @Name(LEVEL_FIELD)
   @Description("The name of the field that should contain the Yes level in the hierarchy starting at a particular " +
     "node in the tree. The level is calculated as a distance of a node to a particular parent node in the tree.")
@@ -117,9 +139,36 @@ public class HierarchyConfig extends PluginConfig {
   @Nullable
   private Integer maxDepth;
 
+  @Name(CONNECT_BY_ROOT_FIELD)
+  @Description("Connect by root. ")
+  @Macro
+  @Nullable
+  private String connectByRoot;
+
+  @Name(MULTIPLE_VALUES_FIELD)
+  @Nullable
+  @Description("Test.")
+  private String multipleValues;
+
+//  @Name(SIBLING_ORDER_FIELD)
+//  @Nullable
+//  @Description("Sorting order for siblings")
+//  private String siblingOrder;
+
   @Name(BROADCAST_JOIN_FIELD)
+  @Nullable
   @Description("Performs an in-memory broadcast join")
   private Boolean broadcastJoin;
+
+//  @Name(FIELDS_TO_TRANSFORM)
+//  @Nullable
+//  @Description("Test")
+//  private String fieldsToTransform;
+
+//  @Name(KV_DROPDOWN)
+//  @Nullable
+//  @Description("Test")
+//  private String propertyKVDropdown;
 
   public boolean requiredFieldsContainMacro() {
     return containsMacro(PARENT_FIELD) || containsMacro(CHILD_FIELD) || containsMacro(LEVEL_FIELD) ||
@@ -208,6 +257,10 @@ public class HierarchyConfig extends PluginConfig {
   public int getMaxDepth() {
     return maxDepth == null ? MAX_DEPTH_FIELD_DEFAULT_VALUE : maxDepth;
   }
+
+//  public String getSiblingOrder() {
+//    return siblingOrder == null ? SIBLING_ORDER_FIELD_DEFAULT_VALUE : siblingOrder;
+//  }
 
   public boolean isBroadcastJoin() {
     return broadcastJoin == null ? BROADCAST_JOIN_FIELD_DEFAULT_VALUE : broadcastJoin.booleanValue();

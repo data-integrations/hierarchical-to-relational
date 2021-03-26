@@ -3,10 +3,10 @@
     "spec-version": "1.5",
     "label": "Hierarchy to Relational"
   },
-  "display-name" : "Hierarchy to Relational",
+  "display-name": "Hierarchy to Relational",
   "configuration-groups": [
     {
-      "label": "Basic",
+      "label": "Hierarchy Configuration",
       "properties": [
         {
           "label": "Parent field",
@@ -19,16 +19,22 @@
           "widget-type": "input-field-selector"
         },
         {
-          "label": "Parent -> Child fields mapping",
+          "label": "Parent -> Child relationships",
           "name": "parentChildMappingField",
           "widget-type": "keyvalue",
           "widget-attributes": {
             "showDelimiter": "false",
             "key-placeholder": "Parent field",
             "value-placeholder": "Child field",
-            "kv-delimiter" : "=",
-            "delimiter" : ";"
+            "kv-delimiter": "=",
+            "delimiter": ";"
           }
+        },
+        {
+          "label": "Start with",
+          "name": "startWith",
+          "widget-type": "textbox",
+          "default": ""
         }
       ]
     },
@@ -70,6 +76,34 @@
           "name": "maxDepthField",
           "widget-type": "textbox",
           "default": 50
+        },
+        {
+          "label": "Connect by root",
+          "name": "connectByRoot",
+          "widget-type": "keyvalue",
+          "widget-attributes": {
+            "showDelimiter": "false",
+            "key-placeholder": "Field name",
+            "value-placeholder": "Alias",
+            "kv-delimiter": "=",
+            "delimiter": ";"
+          }
+        },
+        {
+          "label": "Path Fields",
+          "name": "multipleValues",
+          "widget-type": "ds-multiplevalues",
+          "widget-attributes": {
+            "delimiter": ",",
+            "values-delimiter": ":",
+            "numValues": "4",
+            "placeholders": [
+              "Field name for vertices",
+              "Path separator",
+              "Alias for the path field",
+              "Alias for the path length field"
+            ]
+          }
         },
         {
           "label": "Perform an in-memory broadcast join",

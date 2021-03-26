@@ -269,6 +269,12 @@ public class HierarchyFlattener {
             .select(columns);
       }
 
+      LOG.info("currentLevel - Begin -");
+      for (Column col : columns) {
+        LOG.info(col.toString());
+      }
+      LOG.info("currentLevel - End -");
+
       if (level == 0) {
         /*
            The first level, all nodes as x -> x, which will always join to themselves.
@@ -349,6 +355,12 @@ public class HierarchyFlattener {
       columns[i++] = functions.first(new Column(fieldName)).as(fieldName);
     }
 
+    LOG.info("flattened - Begin -");
+    for (Column col : columns) {
+      LOG.info(col.toString());
+    }
+    LOG.info("flattened - End -");
+
     flattened = flattened.groupBy(new Column(parentCol), new Column(childCol))
         .agg(functions.min(new Column(levelCol)).as(levelCol), columns);
 
@@ -358,6 +370,13 @@ public class HierarchyFlattener {
         .map(Column::new)
         .collect(Collectors.toList()).toArray(new Column[outputSchema.getFields().size()]);
     flattened = flattened.select(finalOutputColumns);
+
+    LOG.info("finalOutputColumns - Begin -");
+    for (Column col : columns) {
+      LOG.info(col.toString());
+    }
+    LOG.info("finalOutputColumns - End -");
+
     return flattened.javaRDD().map(row -> DataFrames.fromRow(row, outputSchema));
   }
 
@@ -431,6 +450,12 @@ public class HierarchyFlattener {
       }
     }
 
+    LOG.info("getStartingPoints - Begin -");
+    for (Column col : columns) {
+      LOG.info(col.toString());
+    }
+    LOG.info("getStartingPoints - End -");
+
     return levelZero.union(input.select(columns)).distinct();
   }
 
@@ -503,6 +528,11 @@ public class HierarchyFlattener {
       }
     }
 
+    LOG.info("getNonSelfReferencingRoots - Begin -");
+    for (Column col : columns) {
+      LOG.info(col.toString());
+    }
+    LOG.info("getNonSelfReferencingRoots - End -");
     /*
        we only need childCol from the input and not any of the other fields
        drop all the other fields before the join so that they don't need to be shuffled
