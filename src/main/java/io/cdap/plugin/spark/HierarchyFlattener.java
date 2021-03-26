@@ -74,6 +74,7 @@ public class HierarchyFlattener {
   private final int maxLevel;
   private final Boolean broadcastJoin;
   private final Map<String, String> parentChildMapping;
+  private final List<Map<String, String>> pathFields;
 
   public HierarchyFlattener(HierarchyConfig config) {
     this.parentCol = config.getParentField();
@@ -86,6 +87,16 @@ public class HierarchyFlattener {
     this.maxLevel = config.getMaxDepth();
     this.broadcastJoin = config.isBroadcastJoin();
     this.parentChildMapping = config.getParentChildMapping();
+
+    LOG.info("pathFields: " + config.getRawPathFields());
+    this.pathFields = config.getPathFields();
+    LOG.info("pathFields after parsing - Begin - ");
+    for (Map<String, String> map : this.pathFields) {
+      for (String k : map.keySet()) {
+        LOG.info(k + ":" + map.get(k));
+      }
+    }
+    LOG.info("pathFields after parsing - End - ");
   }
 
   /**
@@ -234,7 +245,7 @@ public class HierarchyFlattener {
            input.child == null ? current.datafieldN : input.datafieldN
          from current left outer join input on current.child = input.parent
        */
-      Column[] columns = new Column[schema.getFields().size() + 3];
+      Column[] columns = new Column[schema.getFields().size() + 3 + pathFields.size() ];
       // currentLevel is aliased as "current" and input is aliased as "input"
       // to remove ambiguity between common column names.
       columns[0] = new Column("current." + parentCol).as(parentCol);
@@ -254,6 +265,22 @@ public class HierarchyFlattener {
               .otherwise(new Column("input." + fieldName)).as(fieldName);
         }
       }
+
+      for (Map<String, String> field : pathFields) {
+          columns[i++] = functions.concat(
+              functions.lit(field.get(HierarchyConfig.PATH_SEPARATOR)),
+              new Column(field.get(HierarchyConfig.PATH_FIELD_ALIAS))
+          ).as(field.get(HierarchyConfig.PATH_FIELD_ALIAS));
+      }
+
+      LOG.info("currentLevel - Begin -");
+      for (Column col : columns) {
+        if (col != null) {
+          LOG.info("  " + col.toString());
+        }
+      }
+      LOG.info("currentLevel - End -");
+
       Dataset<Row> nextLevel;
       if (broadcastJoin) {
         nextLevel = currentLevel.alias("current")
@@ -268,12 +295,6 @@ public class HierarchyFlattener {
                 "leftouter")
             .select(columns);
       }
-
-      LOG.info("currentLevel - Begin -");
-      for (Column col : columns) {
-        LOG.info(col.toString());
-      }
-      LOG.info("currentLevel - End -");
 
       if (level == 0) {
         /*
@@ -346,7 +367,7 @@ public class HierarchyFlattener {
          from flattened
          group by parent, child
      */
-    Column[] columns = new Column[schema.getFields().size()];
+    Column[] columns = new Column[schema.getFields().size() + pathFields.size()];
     columns[0] = functions.first(new Column(topCol)).as(topCol);
     columns[1] = functions.when(functions.max(new Column(botCol)).equalTo(0), falseStr)
         .otherwise(trueStr).as(botCol);
@@ -355,9 +376,14 @@ public class HierarchyFlattener {
       columns[i++] = functions.first(new Column(fieldName)).as(fieldName);
     }
 
+    for (Map<String, String> pathField : pathFields) {
+      columns[i++] = functions.first(new Column(pathField.get(HierarchyConfig.PATH_FIELD_ALIAS)))
+          .as(pathField.get(HierarchyConfig.PATH_FIELD_ALIAS));
+    }
+
     LOG.info("flattened - Begin -");
     for (Column col : columns) {
-      LOG.info(col.toString());
+      LOG.info("  " + col.toString());
     }
     LOG.info("flattened - End -");
 
@@ -369,11 +395,12 @@ public class HierarchyFlattener {
         .map(Schema.Field::getName)
         .map(Column::new)
         .collect(Collectors.toList()).toArray(new Column[outputSchema.getFields().size()]);
+
     flattened = flattened.select(finalOutputColumns);
 
     LOG.info("finalOutputColumns - Begin -");
     for (Column col : columns) {
-      LOG.info(col.toString());
+      LOG.info("  " + col.toString());
     }
     LOG.info("finalOutputColumns - End -");
 
@@ -420,7 +447,7 @@ public class HierarchyFlattener {
 
         A distinct is run at the end to remove duplicates, since there can be multiple paths to the same child.
      */
-    Column[] columns = new Column[dataFieldNames.size() + 5];
+    Column[] columns = new Column[dataFieldNames.size() + 5 + pathFields.size()];
     columns[0] = input.col(childCol).as(parentCol);
     columns[1] = input.col(childCol).as(childCol);
     columns[2] = functions.lit(0).as(levelCol);
@@ -450,9 +477,16 @@ public class HierarchyFlattener {
       }
     }
 
+    for (Map<String, String> pathField : pathFields) {
+      columns[i++] = new Column(pathField.get(HierarchyConfig.VERTEX_FIELD_NAME))
+          .as(pathField.get(HierarchyConfig.PATH_FIELD_ALIAS));
+    }
+
     LOG.info("getStartingPoints - Begin -");
     for (Column col : columns) {
-      LOG.info(col.toString());
+      if (col != null) {
+        LOG.info("  " + col.toString());
+      }
     }
     LOG.info("getStartingPoints - End -");
 
@@ -492,7 +526,7 @@ public class HierarchyFlattener {
        parentCategory and category both get their value from the parentCategory key in the mapping.
        Every other data field is just null.
     */
-    Column[] columns = new Column[dataFieldNames.size() + 5];
+    Column[] columns = new Column[dataFieldNames.size() + 5 + pathFields.size()];
     columns[0] = new Column("A." + parentCol).as(parentCol);
     columns[1] = new Column("A." + parentCol).as(childCol);
     columns[2] = functions.lit(0).as(levelCol);
@@ -528,9 +562,16 @@ public class HierarchyFlattener {
       }
     }
 
+    for (Map<String, String> pathField : pathFields) {
+      columns[i++] = new Column("A." + pathField.get(HierarchyConfig.VERTEX_FIELD_NAME))
+          .as(pathField.get(HierarchyConfig.PATH_FIELD_ALIAS));
+    }
+
     LOG.info("getNonSelfReferencingRoots - Begin -");
     for (Column col : columns) {
-      LOG.info(col.toString());
+      if (col != null) {
+        LOG.info("  " + col.toString());
+      }
     }
     LOG.info("getNonSelfReferencingRoots - End -");
     /*
@@ -549,6 +590,7 @@ public class HierarchyFlattener {
     } else {
       joined = input.alias("A").join(
           children.alias("B"), new Column("A." + parentCol).equalTo(new Column("B." + childCol)), "leftouter")
+//      input.alias("B"), new Column("A." + parentCol).equalTo(new Column("B." + childCol)), "leftouter")
           .where(new Column("B." + childCol).isNull())
           .select(columns);
     }

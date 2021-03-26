@@ -91,11 +91,11 @@
         },
         {
           "label": "Path Fields",
-          "name": "multipleValues",
+          "name": "pathFields",
           "widget-type": "ds-multiplevalues",
           "widget-attributes": {
             "delimiter": ",",
-            "values-delimiter": ":",
+            "values-delimiter": "=",
             "numValues": "4",
             "placeholders": [
               "Field name for vertices",
