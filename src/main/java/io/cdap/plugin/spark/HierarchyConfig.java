@@ -194,19 +194,19 @@ public class HierarchyConfig extends PluginConfig {
       collector.addFailure("Parent field is null/empty.", "Please provide valid parent field.")
           .withConfigProperty(PARENT_FIELD);
     }
-    if (!Strings.isNullOrEmpty(PARENT_CHILD_MAPPING_FIELD)) {
-      Map<String, String> parentChildMapping = getParentChildMapping();
-      if (parentChildMapping.containsKey(parentField) || parentChildMapping.containsValue(parentField)) {
-        collector.addFailure("Parent key field found mapping.",
-            "Parent key field cannot be part of parent-> child mapping.")
-            .withConfigProperty(PARENT_CHILD_MAPPING_FIELD);
-      }
-      if (parentChildMapping.containsKey(childField) || parentChildMapping.containsValue(childField)) {
-        collector.addFailure("Child key field found mapping.",
-            "Child key field cannot be part of parent-> child mapping.")
-            .withConfigProperty(PARENT_CHILD_MAPPING_FIELD);
-      }
-    }
+//    if (!Strings.isNullOrEmpty(PARENT_CHILD_MAPPING_FIELD)) {
+//      Map<String, String> parentChildMapping = getParentChildMapping();
+//      if (parentChildMapping.containsKey(parentField) || parentChildMapping.containsValue(parentField)) {
+//        collector.addFailure("Parent key field found mapping.",
+//            "Parent key field cannot be part of parent-> child mapping.")
+//            .withConfigProperty(PARENT_CHILD_MAPPING_FIELD);
+//      }
+//      if (parentChildMapping.containsKey(childField) || parentChildMapping.containsValue(childField)) {
+//        collector.addFailure("Child key field found mapping.",
+//            "Child key field cannot be part of parent-> child mapping.")
+//            .withConfigProperty(PARENT_CHILD_MAPPING_FIELD);
+//      }
+//    }
     if (Strings.isNullOrEmpty(childField)) {
       collector.addFailure("Child field is null/empty.", "Please provide valid child field.")
           .withConfigProperty(CHILD_FIELD);
@@ -340,6 +340,7 @@ public class HierarchyConfig extends PluginConfig {
     List<Map<String, String>> paths = getPathFields();
     for (Map<String, String> path : paths) {
       fields.add(Schema.Field.of(path.get(PATH_FIELD_ALIAS), Schema.of(Schema.Type.STRING)));
+      fields.add(Schema.Field.of(path.get(PATH_FIELD_LENGTH_ALIAS), Schema.of(Schema.Type.INT)));
     }
 
     Schema schema = Schema.recordOf(inputSchema.getRecordName() + "_flattened", fields);
