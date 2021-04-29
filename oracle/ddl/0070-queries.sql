@@ -57,3 +57,4 @@ CONNECT BY prior id = parent_id
   START WITH id = 0
         AND statement_id = 'all'
   ORDER BY id;
+
