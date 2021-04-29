@@ -16,13 +16,13 @@
 
 package io.cdap.plugin.spark;
 
+import io.cdap.cdap.datapipeline.DataPipelineApp;
+import io.cdap.cdap.datapipeline.SmartWorkflow;
 import com.google.common.collect.ImmutableList;
 import io.cdap.cdap.api.artifact.ArtifactSummary;
 import io.cdap.cdap.api.data.format.StructuredRecord;
 import io.cdap.cdap.api.data.schema.Schema;
 import io.cdap.cdap.api.dataset.table.Table;
-import io.cdap.cdap.datapipeline.DataPipelineApp;
-import io.cdap.cdap.datapipeline.SmartWorkflow;
 import io.cdap.cdap.etl.api.batch.SparkCompute;
 import io.cdap.cdap.etl.mock.batch.MockSink;
 import io.cdap.cdap.etl.mock.batch.MockSource;
