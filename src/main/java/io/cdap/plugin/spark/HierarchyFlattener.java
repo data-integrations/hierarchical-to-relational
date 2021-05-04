@@ -768,7 +768,7 @@ public class HierarchyFlattener {
       LOG.info("====================================");
     }
     /****************************
-     ** DEBUG - END - REMOVE **
+     ** DEBUG -  END  - REMOVE **
      ****************************/
 
     /*
