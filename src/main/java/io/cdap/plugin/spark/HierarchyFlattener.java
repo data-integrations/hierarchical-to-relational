@@ -76,6 +76,7 @@ public class HierarchyFlattener {
   private Object childRootValue = null;
   private final Map<String, String> parentChildMapping;
   private final List<Map<String, String>> pathFields;
+  private final List<Map<String, String>> connectByRootFields;
 
   private final String levelCol;
   private final String topCol;
@@ -98,6 +99,8 @@ public class HierarchyFlattener {
     this.maxLevel = config.getMaxDepth();
     this.broadcastJoin = config.isBroadcastJoin();
     this.parentChildMapping = config.getParentChildMapping();
+    this.pathFields = config.getPathFields();
+    this.connectByRootFields = config.getConnectByRootFields();
 
     /****************************
      ** DEBUG - BEGIN - REMOVE **
@@ -111,8 +114,6 @@ public class HierarchyFlattener {
      ** DEBUG - END - REMOVE **
      ****************************/
 
-    this.pathFields = config.getPathFields();
-
     /****************************
      ** DEBUG - BEGIN - REMOVE **
      ****************************/
@@ -125,6 +126,16 @@ public class HierarchyFlattener {
         }
       }
       LOG.info("pathFields after parsing - End - ");
+      LOG.info("====================================");
+
+      LOG.info("====================================");
+      LOG.info("connectByRootFields after parsing - Begin - ");
+      for (Map<String, String> map : this.connectByRootFields) {
+        for (String k : map.keySet()) {
+          LOG.info(k + ":" + map.get(k));
+        }
+      }
+      LOG.info("connectByRootFields after parsing - End - ");
       LOG.info("====================================");
     }
     /**************************
@@ -306,7 +317,9 @@ public class HierarchyFlattener {
        */
 
       // 2 * pathFields.size() to account for 2 extra columns for the path & path length
-      Column[] columns = new Column[inputSchema.getFields().size() + 3 + 2 * pathFields.size()];
+      // 1 * connectByRootFields.size() to account for 1 extra column for the coonect_by_root
+      Column[] columns = new Column[inputSchema.getFields().size() + 3 + 2 * pathFields.size()
+          + 1 * connectByRootFields.size()];
       // currentLevel is aliased as "current" and input is aliased as "input"
       // to remove ambiguity between common column names.
 //      columns[0] = functions.when(functions.isnull(new Column("current." + parentCol)),
@@ -329,6 +342,7 @@ public class HierarchyFlattener {
         }
       }
 
+      // Path & Path_length columns
       for (Map<String, String> pathField : pathFields) {
         columns[i++] = functions.concat(
             new Column(pathField.get(HierarchyConfig.PATH_FIELD_ALIAS)),
@@ -337,6 +351,12 @@ public class HierarchyFlattener {
         ).as(pathField.get(HierarchyConfig.PATH_FIELD_ALIAS));
         columns[i++] = new Column(pathField.get(HierarchyConfig.PATH_FIELD_LENGTH_ALIAS)).plus(1)
             .as(pathField.get(HierarchyConfig.PATH_FIELD_LENGTH_ALIAS));
+      }
+
+      // CONNECT_BY_ROOT column
+      for (Map<String, String> cbrField : connectByRootFields) {
+        columns[i++] = new Column(cbrField.get(HierarchyConfig.CONNECT_BY_ROOT_ALIAS))
+            .as(cbrField.get(HierarchyConfig.CONNECT_BY_ROOT_ALIAS));
       }
 
       /****************************
@@ -476,7 +496,8 @@ public class HierarchyFlattener {
          from flattened
          group by parent, child
      */
-    Column[] columns = new Column[inputSchema.getFields().size() + 2 * pathFields.size()];
+    Column[] columns = new Column[inputSchema.getFields().size() + 2 * pathFields.size()
+        + 1 * connectByRootFields.size()];
     columns[0] = functions.first(new Column(topCol)).as(topCol);
     columns[1] = functions.when(functions.max(new Column(botCol)).equalTo(0), falseStr)
         .otherwise(trueStr).as(botCol);
@@ -485,11 +506,18 @@ public class HierarchyFlattener {
       columns[i++] = functions.first(new Column(fieldName)).as(fieldName);
     }
 
+    // Path & Path_length columns
     for (Map<String, String> pathField : pathFields) {
       columns[i++] = functions.first(new Column(pathField.get(HierarchyConfig.PATH_FIELD_ALIAS)))
           .as(pathField.get(HierarchyConfig.PATH_FIELD_ALIAS));
       columns[i++] = functions.first(new Column(pathField.get(HierarchyConfig.PATH_FIELD_LENGTH_ALIAS)))
           .as(pathField.get(HierarchyConfig.PATH_FIELD_LENGTH_ALIAS));
+    }
+
+    // CONNECT_BY_ROOT column
+    for (Map<String, String> cbrField : connectByRootFields) {
+      columns[i++] = functions.first(new Column(cbrField.get(HierarchyConfig.CONNECT_BY_ROOT_ALIAS)))
+          .as(cbrField.get(HierarchyConfig.CONNECT_BY_ROOT_ALIAS));
     }
 
     /****************************
@@ -525,17 +553,13 @@ public class HierarchyFlattener {
       LOG.info("========================================");
     }
 
-    // perform a final select to make sure fields are in the same order as expected.
+    // Perform a final select to make sure fields are in the same order as expected.
     Column[] finalOutputColumns = outputSchema.getFields().stream()
         .map(Schema.Field::getName)
         .map(Column::new)
         .collect(Collectors.toList()).toArray(new Column[outputSchema.getFields().size()]);
 
-//    Column notNullColumn = null;
-//    for (String k : parentChildMapping.keySet()) {
-//      notNullColumn = new Column(k);
-//    }
-
+    // TODO: Review the where clauses
     Column parentNotNull = new Column(parentCol).isNotNull();
 
     Column childWhere, parentWhere, notParentWhere;
@@ -650,7 +674,9 @@ public class HierarchyFlattener {
         A distinct is run at the end to remove duplicates, since there can be multiple paths to the same child.
      */
     // 2 * pathFields.size() to account for 2 extra columns for the path & path length
-    Column[] columns = new Column[dataFieldNames.size() + 5 + 2 * pathFields.size()];
+    // 1 * connectByRootFields.size() to account for 1 extra column for the connect by root field
+    Column[] columns = new Column[dataFieldNames.size() + 5 + 2 * pathFields.size()
+        + 1 * connectByRootFields.size()];
     columns[0] = input.col(childCol).as(parentCol);
     columns[1] = input.col(childCol).as(childCol);
     columns[2] = functions.lit(0).as(levelCol);
@@ -681,10 +707,17 @@ public class HierarchyFlattener {
       }
     }
 
+    // Path & Path_length columns
     for (Map<String, String> pathField : pathFields) {
       columns[i++] = new Column(pathField.get(HierarchyConfig.VERTEX_FIELD_NAME))
           .as(pathField.get(HierarchyConfig.PATH_FIELD_ALIAS));
       columns[i++] = functions.lit(0).as(pathField.get(HierarchyConfig.PATH_FIELD_LENGTH_ALIAS));
+    }
+
+    // CONNECT_BY_ROOT column
+    for (Map<String, String> cbrField : connectByRootFields) {
+      columns[i++] = new Column(cbrField.get(HierarchyConfig.CONNECT_BY_ROOT_FIELD_NAME))
+          .as(cbrField.get(HierarchyConfig.CONNECT_BY_ROOT_ALIAS));
     }
 
     /****************************
@@ -695,7 +728,7 @@ public class HierarchyFlattener {
       LOG.info("getStartingPoints - Begin -");
       for (Column col : columns) {
         if (col != null) {
-          LOG.info("  " + col.toString());
+          LOG.info("  " + col);
         }
       }
       LOG.info("getStartingPoints - End -");
@@ -755,7 +788,9 @@ public class HierarchyFlattener {
        Every other data field is just null.
     */
     // 2 * pathFields.size() to account for 2 extra columns for the path & path length
-    Column[] columns = new Column[dataFieldNames.size() + 5 + 2 * pathFields.size()];
+    // 1 * connectByRootFields.size() to account for 1 extra column for the coonect_by_root
+    Column[] columns = new Column[dataFieldNames.size() + 5 + 2 * pathFields.size()
+        + 1 * connectByRootFields.size()];
 //    columns[0] = functions.when(functions.isnull(new Column("A." + parentCol)),
 //        functions.lit("ABCD")).otherwise(new Column("A." + parentCol)).as(parentCol);
     columns[0] = new Column("A." + parentCol).as(parentCol);
@@ -795,10 +830,17 @@ public class HierarchyFlattener {
       }
     }
 
+    // Path & Path_length columns
     for (Map<String, String> pathField : pathFields) {
       columns[i++] = new Column("A." + pathField.get(HierarchyConfig.VERTEX_FIELD_NAME))
           .as(pathField.get(HierarchyConfig.PATH_FIELD_ALIAS));
       columns[i++] = functions.lit(0).as(pathField.get(HierarchyConfig.PATH_FIELD_LENGTH_ALIAS));
+    }
+
+    // CONNECT_BY_ROOT column
+    for (Map<String, String> cbrField : connectByRootFields) {
+      columns[i++] = new Column("A." + cbrField.get(HierarchyConfig.CONNECT_BY_ROOT_FIELD_NAME))
+          .as(cbrField.get(HierarchyConfig.CONNECT_BY_ROOT_ALIAS));
     }
 
     /****************************

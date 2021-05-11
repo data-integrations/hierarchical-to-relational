@@ -78,6 +78,8 @@ public class HierarchyConfig extends PluginConfig {
   public static final String PATH_SEPARATOR = "pathSeparator";
   public static final String PATH_FIELD_ALIAS = "pathFieldAlias";
   public static final String PATH_FIELD_LENGTH_ALIAS = "pathFieldLengthAlias";
+  public static final String CONNECT_BY_ROOT_FIELD_NAME = "connectByRootFieldName";
+  public static final String CONNECT_BY_ROOT_ALIAS = "connectByRootAlias";
 
   // Hierarchy Configuration
   @Name(PARENT_FIELD)
@@ -298,6 +300,25 @@ public class HierarchyConfig extends PluginConfig {
     return list;
   }
 
+  public List<Map<String, String>> getConnectByRootFields() {
+    List<Map<String, String>> list = new ArrayList<>();
+    if (!Strings.isNullOrEmpty(connectByRoot)) {
+      String[] fields = connectByRoot.split(",");
+      for (String field : fields) {
+        String[] entries = field.split("=");
+        if (entries.length == 2) {
+          Map<String, String> map = new HashMap<>();
+          map.put(CONNECT_BY_ROOT_FIELD_NAME, entries[0]);
+          map.put(CONNECT_BY_ROOT_ALIAS, entries[1]);
+          list.add(map);
+        } else {
+          Log.warn("Cannot parse the connectByRoot fields from: " + field);
+        }
+      }
+    }
+    return list;
+  }
+
   public Map<String, String> getParentChildMapping() {
     Map<String, String> parentChildMap = new HashMap<>();
     if (Strings.isNullOrEmpty(parentChildMappingField)) {
@@ -337,10 +358,17 @@ public class HierarchyConfig extends PluginConfig {
     fields.add(Schema.Field.of(getTopField(), Schema.of(Schema.Type.STRING)));
     fields.add(Schema.Field.of(getBottomField(), Schema.of(Schema.Type.STRING)));
 
+    // Add a potential PATH field
     List<Map<String, String>> paths = getPathFields();
     for (Map<String, String> path : paths) {
-      fields.add(Schema.Field.of(path.get(PATH_FIELD_ALIAS), Schema.of(Schema.Type.STRING)));
-      fields.add(Schema.Field.of(path.get(PATH_FIELD_LENGTH_ALIAS), Schema.of(Schema.Type.INT)));
+      fields.add(Schema.Field.of(path.get(PATH_FIELD_ALIAS), Schema.nullableOf(Schema.of(Schema.Type.STRING))));
+      fields.add(Schema.Field.of(path.get(PATH_FIELD_LENGTH_ALIAS), Schema.nullableOf(Schema.of(Schema.Type.INT))));
+    }
+
+    // Add a potential CONNECT_BY_ROOT field
+    List<Map<String, String>> connectByRootFields = getConnectByRootFields();
+    for (Map<String, String> field : connectByRootFields) {
+      fields.add(Schema.Field.of(field.get(CONNECT_BY_ROOT_ALIAS), Schema.nullableOf(Schema.of(Schema.Type.STRING))));
     }
 
     Schema schema = Schema.recordOf(inputSchema.getRecordName() + "_flattened", fields);
