@@ -25,7 +25,6 @@ import org.apache.spark.sql.Column;
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Row;
 import org.apache.spark.sql.SQLContext;
-import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.functions;
 import org.apache.spark.sql.types.DataTypes;
 import org.apache.spark.sql.types.StructField;
@@ -70,17 +69,23 @@ public class HierarchyFlattener {
   private static final Logger LOG = LoggerFactory.getLogger(HierarchyFlattener.class);
   private static final boolean SHOW_DEBUG_CONTENT = true;
   private static final boolean SHOW_DEBUG_COLUMNS = true;
+
   private final String parentCol;
   private final String childCol;
+  private Object parentRootValue = null;
+  private Object childRootValue = null;
+  private final Map<String, String> parentChildMapping;
+  private final List<Map<String, String>> pathFields;
+
   private final String levelCol;
   private final String topCol;
   private final String botCol;
+
   private final String trueStr;
   private final String falseStr;
+
   private final int maxLevel;
   private final Boolean broadcastJoin;
-  private final Map<String, String> parentChildMapping;
-  private final List<Map<String, String>> pathFields;
 
   public HierarchyFlattener(HierarchyConfig config) {
     this.parentCol = config.getParentField();
@@ -173,27 +178,36 @@ public class HierarchyFlattener {
   public JavaRDD<StructuredRecord> flatten(SparkExecutionPluginContext context, JavaRDD<StructuredRecord> rdd,
                                            Schema outputSchema) {
     Schema inputSchema = context.getInputSchema();
-    SparkSession sparkSession = SparkSession.builder()
-        .master("local[1]")
-        .appName("SparkByExamples.com")
-        .getOrCreate();
     SQLContext sqlContext = new SQLContext(context.getSparkContext());
     StructType sparkSchema = DataFrames.toDataType(inputSchema);
 //    StructType sparkSchema = schemaToDataType(inputSchema);
-    // Make sure the field that store the parent id is allowed to be null
 
+    // Make sure the field that store the parent id is allowed to be null
     StructField[] fields = sparkSchema.fields();
     for (int i = 0; i < fields.length; i++) {
       StructField field = fields[i];
-      if (field.name().equals(parentCol)) {
-        StructField newField = DataTypes.createStructField(field.name(), field.dataType(), true);
-        fields[i] = newField;
-      }
+      StructField newField = DataTypes.createStructField(field.name(), field.dataType(), field.nullable());
+      fields[i] = newField;
     }
 
     Dataset<Row> input = sqlContext.createDataFrame(
-        rdd.map(record -> DataFrames.toRow(record, sparkSchema)).rdd(),
+        rdd.map((StructuredRecord record) -> DataFrames.toRow(record, sparkSchema)).rdd(),
         sparkSchema);
+
+    // TODO: Add debug info here
+    LOG.info("==================================");
+    LOG.info("== Content of input - BEGIN ==");
+    LOG.info("==================================");
+//    JavaRDD<Row> test = input.javaRDD();
+//    Iterator<Row> iterat = test.toLocalIterator();
+//    for (Iterator<Row> it = input.javaRDD().toLocalIterator(); it.hasNext(); ) {
+//      Row line = it.next();
+//      LOG.info("* " + line);
+//    }
+    LOG.info("==================================");
+    LOG.info("== Content of input - END   ==");
+    LOG.info("==================================");
+
     // cache the input so that the previous stages don't get re-processed
     input = input.persist(StorageLevel.DISK_ONLY());
 
@@ -295,8 +309,9 @@ public class HierarchyFlattener {
       Column[] columns = new Column[inputSchema.getFields().size() + 3 + 2 * pathFields.size()];
       // currentLevel is aliased as "current" and input is aliased as "input"
       // to remove ambiguity between common column names.
-      columns[0] = functions.when(functions.isnull(new Column("current." + parentCol)),
-          functions.lit("ABCD")).otherwise(new Column("current." + parentCol)).as(parentCol);
+//      columns[0] = functions.when(functions.isnull(new Column("current." + parentCol)),
+//          functions.lit("ABCD")).otherwise(new Column("current." + parentCol)).as(parentCol);
+      columns[0] = new Column("current." + parentCol).as(parentCol);
       columns[1] = functions.when(new Column("input." + childCol).isNull(), new Column("current." + childCol))
           .otherwise(new Column("input." + childCol)).as(childCol);
       columns[2] = new Column(levelCol).plus(1).as(levelCol);
@@ -315,11 +330,11 @@ public class HierarchyFlattener {
       }
 
       for (Map<String, String> pathField : pathFields) {
-          columns[i++] = functions.concat(
-              new Column(pathField.get(HierarchyConfig.PATH_FIELD_ALIAS)),
-              functions.lit(pathField.get(HierarchyConfig.PATH_SEPARATOR)),
-              new Column("input." + pathField.get(HierarchyConfig.VERTEX_FIELD_NAME))
-              ).as(pathField.get(HierarchyConfig.PATH_FIELD_ALIAS));
+        columns[i++] = functions.concat(
+            new Column(pathField.get(HierarchyConfig.PATH_FIELD_ALIAS)),
+            functions.lit(pathField.get(HierarchyConfig.PATH_SEPARATOR)),
+            new Column("input." + pathField.get(HierarchyConfig.VERTEX_FIELD_NAME))
+        ).as(pathField.get(HierarchyConfig.PATH_FIELD_ALIAS));
         columns[i++] = new Column(pathField.get(HierarchyConfig.PATH_FIELD_LENGTH_ALIAS)).plus(1)
             .as(pathField.get(HierarchyConfig.PATH_FIELD_LENGTH_ALIAS));
       }
@@ -516,7 +531,38 @@ public class HierarchyFlattener {
         .map(Column::new)
         .collect(Collectors.toList()).toArray(new Column[outputSchema.getFields().size()]);
 
-    flattened = flattened.select(finalOutputColumns);
+//    Column notNullColumn = null;
+//    for (String k : parentChildMapping.keySet()) {
+//      notNullColumn = new Column(k);
+//    }
+
+    Column parentNotNull = new Column(parentCol).isNotNull();
+
+    Column childWhere, parentWhere, notParentWhere;
+    if (childRootValue == null) {
+      childWhere = new Column(childCol).isNull();
+    } else {
+      childWhere = new Column(childCol).equalTo(childRootValue);
+    }
+
+    if (parentRootValue == null) {
+      parentWhere = new Column(parentCol).isNull();
+      notParentWhere = new Column(parentCol).isNotNull();
+    } else {
+      parentWhere = new Column(parentCol).equalTo(parentRootValue);
+      notParentWhere = new Column(parentCol).notEqual(parentRootValue);
+    }
+
+    Column childNotParentWhere = new Column(parentCol).notEqual(new Column(childCol));
+
+    flattened = flattened
+//        .where((notParentWhere.and(childNotParentWhere))
+//            .or(parentWhere.and(childWhere)))
+        .where(notParentWhere)
+        .select(finalOutputColumns);
+
+//    where (parent is not parentRootValue)
+//    or (parent is parentRootValue and child = childRootValue)
 
     /****************************
      ** DEBUG - BEGIN - REMOVE **
@@ -710,10 +756,12 @@ public class HierarchyFlattener {
     */
     // 2 * pathFields.size() to account for 2 extra columns for the path & path length
     Column[] columns = new Column[dataFieldNames.size() + 5 + 2 * pathFields.size()];
-    columns[0] = functions.when(functions.isnull(new Column("A." + parentCol)),
-        functions.lit("ABCD")).otherwise(new Column("A." + parentCol)).as(parentCol);
-    columns[1] = functions.when(functions.isnull(new Column("A." + childCol)),
-        functions.lit("ABCD")).otherwise(new Column("A." + childCol)).as(childCol);
+//    columns[0] = functions.when(functions.isnull(new Column("A." + parentCol)),
+//        functions.lit("ABCD")).otherwise(new Column("A." + parentCol)).as(parentCol);
+    columns[0] = new Column("A." + parentCol).as(parentCol);
+//    columns[1] = functions.when(functions.isnull(new Column("A." + childCol)),
+//        functions.lit("ABCD")).otherwise(new Column("A." + childCol)).as(childCol);
+    columns[1] = new Column("A." + childCol).as(childCol);
     columns[2] = functions.lit(0).as(levelCol);
     columns[3] = functions.lit(trueStr).as(topCol);
     columns[4] = functions.lit(0).as(botCol);
@@ -806,6 +854,18 @@ public class HierarchyFlattener {
           .where(new Column("B." + childCol).isNull())
           .select(columns);
     }
+
+    // Save the value for the root node, we'll use them at the very end to remove duplicates but keep the root node
+    Iterator<Row> rows = joined.javaRDD().toLocalIterator();
+
+    for (Iterator<Row> it = rows; it.hasNext(); ) {
+      Row row = it.next();
+      parentRootValue = row.getAs(parentCol);
+      childRootValue = row.getAs(childCol);
+      LOG.info("parentVal: ", parentRootValue);
+      LOG.info("childRootValuse: ", childRootValue);
+    }
+
     return joined;
   }
 
