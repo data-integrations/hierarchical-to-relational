@@ -322,7 +322,7 @@ public class HierarchyConfig extends PluginConfig {
   public Map<String, String> getParentChildMapping() {
     Map<String, String> parentChildMap = new HashMap<>();
     if (Strings.isNullOrEmpty(parentChildMappingField)) {
-      return parentChildMap;
+      return parentChildMap; // Empty
     }
     KeyValueListParser keyValueListParser = new KeyValueListParser(";", "=");
     Iterable<KeyValue<String, String>> parsedParentChildMappingField = keyValueListParser
