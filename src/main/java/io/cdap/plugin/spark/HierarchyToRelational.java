@@ -32,7 +32,6 @@ import org.apache.spark.api.java.JavaRDD;
 
 import java.util.Collections;
 import java.util.List;
-import java.util.Map;
 import java.util.stream.Collectors;
 
 /**

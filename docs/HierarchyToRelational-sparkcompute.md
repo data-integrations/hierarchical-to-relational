@@ -43,6 +43,7 @@ even if the parent is not a leaf.
 **Max depth:** The maximum depth upto which the data should be flattened. If a node is reached at a deeper level, 
 an error will be thrown.
 
+**Broadcast join:** Performs an in-memory broadcast join.
 
 Example
 -------

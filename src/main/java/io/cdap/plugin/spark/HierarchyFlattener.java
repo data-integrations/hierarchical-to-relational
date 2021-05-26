@@ -26,30 +26,35 @@ import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Row;
 import org.apache.spark.sql.SQLContext;
 import org.apache.spark.sql.functions;
+import org.apache.spark.sql.types.DataTypes;
+import org.apache.spark.sql.types.StructField;
 import org.apache.spark.sql.types.StructType;
 import org.apache.spark.storage.StorageLevel;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+import static org.apache.spark.sql.functions.broadcast;
+
 /**
  * Takes an RDD that represents a hierarchical structure and flattens it.
- *
+ * <p>
  * The input RDD is expected to edges in a tree, with each record containing an id for that node and the id of its
  * parent. The flattened RDD will contain rows denoting each node -> accessible child relationship, along with
  * additional information about that relationship. For example, if the input is:
- *
+ * <p>
  * parent:null, id:A  (A as root)
  * parent:A, id:B     (A -> B)
  * parent:B, id:C     (B -> C)
  * parent:B, id:D     (B -> D)
- *
+ * <p>
  * The output will be:
- *
+ * <p>
  * parent:A, id:A, depth:0, isTop:true, isBot:false
  * parent:A, id:B, depth:1, isTop:false, isBot:false
  * parent:A, id:C, depth:2, isTop:false, isBot:true
@@ -62,15 +67,26 @@ import java.util.stream.Collectors;
  */
 public class HierarchyFlattener {
   private static final Logger LOG = LoggerFactory.getLogger(HierarchyFlattener.class);
+  private static final boolean SHOW_DEBUG_CONTENT = true;
+  private static final boolean SHOW_DEBUG_COLUMNS = true;
+
   private final String parentCol;
   private final String childCol;
+  private Object parentRootValue = null;
+  private Object childRootValue = null;
+  private final Map<String, String> parentChildMapping;
+  private final List<Map<String, String>> pathFields;
+  private final List<Map<String, String>> connectByRootFields;
+
   private final String levelCol;
   private final String topCol;
   private final String botCol;
+
   private final String trueStr;
   private final String falseStr;
+
   private final int maxLevel;
-  private final Map<String, String> parentChildMapping;
+  private final Boolean broadcastJoin;
 
   public HierarchyFlattener(HierarchyConfig config) {
     this.parentCol = config.getParentField();
@@ -81,67 +97,143 @@ public class HierarchyFlattener {
     this.trueStr = config.getTrueValue();
     this.falseStr = config.getFalseValue();
     this.maxLevel = config.getMaxDepth();
+    this.broadcastJoin = config.isBroadcastJoin();
     this.parentChildMapping = config.getParentChildMapping();
+    this.pathFields = config.getPathFields();
+    this.connectByRootFields = config.getConnectByRootFields();
+
+    /****************************
+     ** DEBUG - BEGIN - REMOVE **
+     ****************************/
+    if (SHOW_DEBUG_COLUMNS) {
+      LOG.info("====================================");
+      LOG.info("== pathFields before parsing: " + config.getRawPathFields() + " ==");
+      LOG.info("====================================");
+    }
+    /****************************
+     ** DEBUG - END - REMOVE **
+     ****************************/
+
+    /****************************
+     ** DEBUG - BEGIN - REMOVE **
+     ****************************/
+    if (SHOW_DEBUG_COLUMNS) {
+      LOG.info("======================================");
+      LOG.info("== pathFields after parsing - Begin ==");
+      LOG.info("======================================");
+      for (Map<String, String> map : this.pathFields) {
+        for (String k : map.keySet()) {
+          LOG.info("== " + k + ":" + map.get(k));
+        }
+      }
+      LOG.info("====================================");
+      LOG.info("== pathFields after parsing - End ==");
+      LOG.info("====================================");
+
+      LOG.info("================================================");
+      LOG.info("=== connectByRootFields after parsing - Begin ==");
+      LOG.info("================================================");
+      for (Map<String, String> map : this.connectByRootFields) {
+        for (String k : map.keySet()) {
+          LOG.info("== " + k + ":" + map.get(k));
+        }
+      }
+      LOG.info("=============================================");
+      LOG.info("== connectByRootFields after parsing - End ==");
+      LOG.info("=============================================");
+
+      LOG.info("===============================================");
+      LOG.info("=== parentChildMapping after parsing - Begin ==");
+      LOG.info("===============================================");
+      for (String k : parentChildMapping.keySet()) {
+        LOG.info("== " + k + ":" + parentChildMapping.get(k));
+      }
+
+      LOG.info("============================================");
+      LOG.info("== parentChildMapping after parsing - End ==");
+      LOG.info("============================================");
+
+    }
+    /**************************
+     ** DEBUG - END - REMOVE **
+     **************************/
   }
 
   /**
    * Takes an input RDD and flattens it so that every possible ancestor to child relationship is present in the output.
    * Each output record also is annotated with whether the ancestor is a root node, whether the child is a leaf node,
    * and the distance from the ancestor to the child.
-   *
+   * <p>
    * Suppose the input data represents the hierarchy
-   *
-   *                      |--> 5
-   *             |--> 2 --|
-   *         1 --|        |--|
-   *             |--> 3      |--> 6
-   *                     4 --|
-   *
+   * <p>
+   * |--> 5
+   * |--> 2 --|
+   * 1 --|        |--|
+   * |--> 3      |--> 6
+   * 4 --|
+   * <p>
    * This would be represented with the following rows:
-   *
-   *   [1 -> 1]
-   *   [1 -> 2]
-   *   [1 -> 3]
-   *   [2 -> 5]
-   *   [2 -> 6]
-   *   [4 -> 4]
-   *   [4 -> 6]
-   *
+   * <p>
+   * [1 -> 1]
+   * [1 -> 2]
+   * [1 -> 3]
+   * [2 -> 5]
+   * [2 -> 6]
+   * [4 -> 4]
+   * [4 -> 6]
+   * <p>
    * and would generate the following output:
-   *
-   *   [1 -> 1, level:0, root:yes, leaf:no]
-   *   [1 -> 2, level:1, root:yes, leaf:no]
-   *   [1 -> 3, level:1, root:yes, leaf:no]
-   *   [1 -> 5, level:2, root:yes, leaf:yes]
-   *   [1 -> 6, level:2, root:yes, leaf:yes]
-   *   [2 -> 2, level:0, root:no, leaf:no]
-   *   [2 -> 5, level:1, root:no, leaf:yes]
-   *   [2 -> 6, level:1, root:no, leaf:yes]
-   *   [3 -> 3, level:0, root:no, leaf:yes]
-   *   [4 -> 4, level:0, root:yes, leaf:no]
-   *   [4 -> 6, level:1, root:yes, leaf:yes]
-   *   [5 -> 5, level:0, root:no, leaf:yes]
-   *   [6 -> 6, level:0, root:no, leaf:yes]
+   * <p>
+   * [1 -> 1, level:0, root:yes, leaf:no]
+   * [1 -> 2, level:1, root:yes, leaf:no]
+   * [1 -> 3, level:1, root:yes, leaf:no]
+   * [1 -> 5, level:2, root:yes, leaf:yes]
+   * [1 -> 6, level:2, root:yes, leaf:yes]
+   * [2 -> 2, level:0, root:no, leaf:no]
+   * [2 -> 5, level:1, root:no, leaf:yes]
+   * [2 -> 6, level:1, root:no, leaf:yes]
+   * [3 -> 3, level:0, root:no, leaf:yes]
+   * [4 -> 4, level:0, root:yes, leaf:no]
+   * [4 -> 6, level:1, root:yes, leaf:yes]
+   * [5 -> 5, level:0, root:no, leaf:yes]
+   * [6 -> 6, level:0, root:no, leaf:yes]
    *
    * @param context spark plugin context
-   * @param rdd input rdd representing a hierarchy
+   * @param rdd     input rdd representing a hierarchy
    * @return flattened hierarchy with level, root, and leaf information
    */
   public JavaRDD<StructuredRecord> flatten(SparkExecutionPluginContext context, JavaRDD<StructuredRecord> rdd,
                                            Schema outputSchema) {
-    Schema schema = context.getInputSchema();
+    Schema inputSchema = context.getInputSchema();
     SQLContext sqlContext = new SQLContext(context.getSparkContext());
-    StructType sparkSchema = DataFrames.toDataType(schema);
-    Dataset<Row> input = sqlContext.createDataFrame(rdd.map(record -> DataFrames.toRow(record, sparkSchema)).rdd(),
-                                                    sparkSchema);
+    StructType sparkSchema = DataFrames.toDataType(inputSchema);
+
+    Dataset<Row> input = sqlContext.createDataFrame(
+        rdd.map((StructuredRecord record) -> DataFrames.toRow(record, sparkSchema)).rdd(),
+        sparkSchema);
+
+    // TODO: Add debug info here
+    LOG.info("==============================");
+    LOG.info("== Content of input - BEGIN ==");
+    LOG.info("==============================");
+    JavaRDD<Row> test = input.javaRDD();
+    Iterator<Row> iterat = test.toLocalIterator();
+    for (Iterator<Row> it = input.javaRDD().toLocalIterator(); it.hasNext(); ) {
+      Row line = it.next();
+      LOG.info("== " + line);
+    }
+    LOG.info("============================");
+    LOG.info("== Content of input - END ==");
+    LOG.info("=============================");
+
     // cache the input so that the previous stages don't get re-processed
     input = input.persist(StorageLevel.DISK_ONLY());
 
     // field names without the parent and child fields.
-    List<String> dataFieldNames = schema.getFields().stream()
-      .map(Schema.Field::getName)
-      .filter(name -> !name.equals(parentCol) && !name.equals(childCol))
-      .collect(Collectors.toList());
+    List<String> dataFieldNames = inputSchema.getFields().stream()
+        .map(Schema.Field::getName)
+        .filter(name -> !name.equals(parentCol) && !name.equals(childCol))
+        .collect(Collectors.toList());
 
     /*
        The approach is to take N passes through the hierarchy, where N is the maximum depth of the tree.
@@ -168,7 +260,9 @@ public class HierarchyFlattener {
          [parent:5, child:5, level:0, root:false, leaf:0, category:lettuce]
          [parent:6, child:6, level:0, root:false, leaf:0, category:tomato]
      */
-    LOG.info("Starting computation for level 0");
+    LOG.info("======================================");
+    LOG.info("== Starting computation for level 0 ==");
+    LOG.info("======================================");
     Dataset<Row> currentLevel = getStartingPoints(input, dataFieldNames);
     Dataset<Row> flattened = currentLevel;
 
@@ -213,10 +307,13 @@ public class HierarchyFlattener {
     while (!isEmpty(currentLevel)) {
       if (level > maxLevel) {
         throw new IllegalStateException(
-          String.format("Exceeded maximum depth of %d. " +
-                          "Ensure there are no cycles in the hierarchy, or increase the max depth.", maxLevel));
+            String.format("Exceeded maximum depth of %d. " +
+                "Ensure there are no cycles in the hierarchy, or increase the max depth.", maxLevel));
       }
-      LOG.info("Starting computation for level {}", level + 1);
+
+      LOG.info("=======================================");
+      LOG.info("== Starting computation for level {} ==", level + 1);
+      LOG.info("=======================================");
 
       /*
          select
@@ -230,12 +327,16 @@ public class HierarchyFlattener {
            input.child == null ? current.datafieldN : input.datafieldN
          from current left outer join input on current.child = input.parent
        */
-      Column[] columns = new Column[schema.getFields().size() + 3];
+
+      // 2 * pathFields.size() to account for 2 extra columns for the path & path length
+      // 1 * connectByRootFields.size() to account for 1 extra column for the coonect_by_root
+      Column[] columns = new Column[inputSchema.getFields().size() + 3 + 2 * pathFields.size()
+          + 1 * connectByRootFields.size()];
       // currentLevel is aliased as "current" and input is aliased as "input"
       // to remove ambiguity between common column names.
       columns[0] = new Column("current." + parentCol).as(parentCol);
       columns[1] = functions.when(new Column("input." + childCol).isNull(), new Column("current." + childCol))
-        .otherwise(new Column("input." + childCol)).as(childCol);
+          .otherwise(new Column("input." + childCol)).as(childCol);
       columns[2] = new Column(levelCol).plus(1).as(levelCol);
       columns[3] = functions.lit(falseStr).as(topCol);
       columns[4] = functions.when(new Column("input." + childCol).isNull(), 1).otherwise(0).as(botCol);
@@ -247,14 +348,82 @@ public class HierarchyFlattener {
           columns[i++] = new Column("current." + fieldName);
         } else {
           columns[i++] = functions.when(new Column("input." + childCol).isNull(), new Column("current." + fieldName))
-            .otherwise(new Column("input." + fieldName)).as(fieldName);
+              .otherwise(new Column("input." + fieldName)).as(fieldName);
         }
       }
-      Dataset<Row> nextLevel = currentLevel.alias("current")
-        .join(input.alias("input"),
-              new Column("current." + childCol).equalTo(new Column("input." + parentCol)),
-              "leftouter")
-        .select(columns);
+
+      // Path & Path_length columns
+      for (Map<String, String> pathField : pathFields) {
+        columns[i++] = functions.concat(
+            new Column(pathField.get(HierarchyConfig.PATH_FIELD_ALIAS)),
+            functions.lit(pathField.get(HierarchyConfig.PATH_SEPARATOR)),
+            new Column("input." + pathField.get(HierarchyConfig.VERTEX_FIELD_NAME))
+        ).as(pathField.get(HierarchyConfig.PATH_FIELD_ALIAS));
+        columns[i++] = new Column(pathField.get(HierarchyConfig.PATH_FIELD_LENGTH_ALIAS)).plus(1)
+            .as(pathField.get(HierarchyConfig.PATH_FIELD_LENGTH_ALIAS));
+      }
+
+      // CONNECT_BY_ROOT column
+      for (Map<String, String> cbrField : connectByRootFields) {
+        columns[i++] = new Column(cbrField.get(HierarchyConfig.CONNECT_BY_ROOT_ALIAS))
+            .as(cbrField.get(HierarchyConfig.CONNECT_BY_ROOT_ALIAS));
+      }
+
+      /****************************
+       ** DEBUG - BEGIN - REMOVE **
+       ****************************/
+      if (SHOW_DEBUG_COLUMNS) {
+        LOG.info("==========================");
+        LOG.info("== currentLevel - Begin ==");
+        LOG.info("==========================");
+        for (Column col : columns) {
+          if (col != null) {
+            LOG.info("== " + col);
+          }
+        }
+        LOG.info("========================");
+        LOG.info("== currentLevel - End ==");
+        LOG.info("========================");
+      }
+      /****************************
+       ** DEBUG - END - REMOVE **
+       ****************************/
+
+      Dataset<Row> nextLevel;
+      if (broadcastJoin) {
+        nextLevel = currentLevel.alias("current")
+            .join(broadcast(input.alias("input")),
+                new Column("current." + childCol).equalTo(new Column("input." + parentCol)),
+                "leftouter")
+            .select(columns);
+
+//        nextLevel = currentLevel.alias("current")
+//            .join(broadcast(input.alias("input")),
+//                new Column("current." + childCol1).equalTo(new Column("input." + parentCol1))
+//                    .and(new Column("current." + childCol2).equalTo(new Column("input." + parentCol2))),
+//                "leftouter")
+//            .select(columns);
+      } else {
+        nextLevel = currentLevel.alias("current")
+            .join(input.alias("input"),
+                new Column("current." + childCol).equalTo(new Column("input." + parentCol)),
+                "leftouter")
+            .select(columns);
+      }
+
+      if (SHOW_DEBUG_CONTENT) {
+        LOG.info("==================================");
+        LOG.info("== Content of nextLevel - BEGIN ==");
+        LOG.info("==================================");
+        for (Iterator<Row> it = nextLevel.javaRDD().toLocalIterator(); it.hasNext(); ) {
+          Row line = it.next();
+          LOG.info("== " + line);
+        }
+        LOG.info("==================================");
+        LOG.info("== Content of nextLevel - END   ==");
+        LOG.info("==================================");
+      }
+
       if (level == 0) {
         /*
            The first level, all nodes as x -> x, which will always join to themselves.
@@ -278,9 +447,22 @@ public class HierarchyFlattener {
            Where the x indicates a row that needs to be filtered out.
          */
         nextLevel = nextLevel.where(nextLevel.col(parentCol).notEqual(nextLevel.col(childCol))
-                                      .or(nextLevel.col(botCol).equalTo(1)));
+            .or(nextLevel.col(botCol).equalTo(1)));
       }
       flattened = flattened.union(nextLevel);
+
+      if (SHOW_DEBUG_CONTENT) {
+        LOG.info("==============================================");
+        LOG.info("== Content of flattened - BEGIN - Level " + level + "==");
+        LOG.info("==============================================");
+        for (Iterator<Row> it = flattened.javaRDD().toLocalIterator(); it.hasNext(); ) {
+          Row line = it.next();
+          LOG.info("== " + line);
+        }
+        LOG.info("==============================================");
+        LOG.info("== Content of flattened - END - Level " + level + "==");
+        LOG.info("==============================================");
+      }
 
       // remove all leaf nodes from next iteration, since they don't have any children.
       currentLevel = nextLevel.where(nextLevel.col(botCol).notEqual(1));
@@ -313,7 +495,7 @@ public class HierarchyFlattener {
        Note that for each leaf:1 row, there is a duplicate except it has leaf:0.
        These dupes are removed by grouping on [parent, child] and summing the leaf values.
        This is also where the leaf values are translated to their final strings instead of a 0 or 1.
-       If there are multiple paths from one node to another, they will also be deduplicated down to just a single
+       If there are multiple paths from one node to another, they will also be de-duplicated down to just a single
        path here, where the level is the minimum level.
 
          select
@@ -326,24 +508,148 @@ public class HierarchyFlattener {
          from flattened
          group by parent, child
      */
-    Column[] columns = new Column[schema.getFields().size()];
+    Column[] columns = new Column[inputSchema.getFields().size() + 2 * pathFields.size()
+        + 1 * connectByRootFields.size()];
     columns[0] = functions.first(new Column(topCol)).as(topCol);
     columns[1] = functions.when(functions.max(new Column(botCol)).equalTo(0), falseStr)
-      .otherwise(trueStr).as(botCol);
+        .otherwise(trueStr).as(botCol);
     int i = 2;
     for (String fieldName : dataFieldNames) {
       columns[i++] = functions.first(new Column(fieldName)).as(fieldName);
     }
 
-    flattened = flattened.groupBy(new Column(parentCol), new Column(childCol))
-      .agg(functions.min(new Column(levelCol)).as(levelCol), columns);
+    // Path & Path_length columns
+    for (Map<String, String> pathField : pathFields) {
+      columns[i++] = functions.first(new Column(pathField.get(HierarchyConfig.PATH_FIELD_ALIAS)))
+          .as(pathField.get(HierarchyConfig.PATH_FIELD_ALIAS));
+      columns[i++] = functions.first(new Column(pathField.get(HierarchyConfig.PATH_FIELD_LENGTH_ALIAS)))
+          .as(pathField.get(HierarchyConfig.PATH_FIELD_LENGTH_ALIAS));
+    }
 
-    // perform a final select to make sure fields are in the same order as expected.
+    // CONNECT_BY_ROOT column
+    for (Map<String, String> cbrField : connectByRootFields) {
+      columns[i++] = functions.first(new Column(cbrField.get(HierarchyConfig.CONNECT_BY_ROOT_ALIAS)))
+          .as(cbrField.get(HierarchyConfig.CONNECT_BY_ROOT_ALIAS));
+    }
+
+    /****************************
+     ** DEBUG - BEGIN - REMOVE **
+     ****************************/
+    if (SHOW_DEBUG_COLUMNS) {
+      LOG.info("=======================");
+      LOG.info("== flattened - Begin ==");
+      LOG.info("=======================");
+      for (Column col : columns) {
+        LOG.info("== " + col.toString());
+      }
+      LOG.info("=====================");
+      LOG.info("== flattened - End ==");
+      LOG.info("=====================");
+    }
+    /****************************
+     ** DEBUG - END - REMOVE **
+     ****************************/
+
+    flattened = flattened.groupBy(new Column(parentCol), new Column(childCol))
+        .agg(functions.min(new Column(levelCol)).as(levelCol),
+            columns);
+
+    if (SHOW_DEBUG_CONTENT) {
+      LOG.info("==============================================");
+      LOG.info("== Content of flattened.groupBy - BEGIN ==");
+      LOG.info("==============================================");
+      for (Iterator<Row> it = flattened.javaRDD().toLocalIterator(); it.hasNext(); ) {
+        Row line = it.next();
+        LOG.info("== " + line);
+      }
+      LOG.info("========================================");
+      LOG.info("== Content of flattened.groupBy - END ==");
+      LOG.info("========================================");
+    }
+
+    // Perform a final select to make sure fields are in the same order as expected.
     Column[] finalOutputColumns = outputSchema.getFields().stream()
-      .map(Schema.Field::getName)
-      .map(Column::new)
-      .collect(Collectors.toList()).toArray(new Column[outputSchema.getFields().size()]);
-    flattened = flattened.select(finalOutputColumns);
+        .map(Schema.Field::getName)
+        .map(Column::new)
+        .collect(Collectors.toList()).toArray(new Column[outputSchema.getFields().size()]);
+
+    // TODO: Review the where clauses
+    Column parentNotNull = new Column(parentCol).isNotNull();
+
+    Column childWhere, parentWhere, notParentWhere;
+    if (childRootValue == null) {
+      childWhere = new Column(childCol).isNull();
+    } else {
+      childWhere = new Column(childCol).equalTo(childRootValue);
+    }
+
+    if (parentRootValue == null) {
+      parentWhere = new Column(parentCol).isNull();
+      notParentWhere = new Column(parentCol).isNotNull();
+    } else {
+      parentWhere = new Column(parentCol).equalTo(parentRootValue);
+      notParentWhere = new Column(parentCol).notEqual(parentRootValue);
+    }
+
+    Column childNotParentWhere = new Column(parentCol).notEqual(new Column(childCol));
+
+    /****************************
+     ** DEBUG - BEGIN - REMOVE **
+     ****************************/
+    if (SHOW_DEBUG_COLUMNS) {
+      LOG.info("============================");
+      LOG.info("== notParentWhere - Begin ==");
+      LOG.info("============================");
+      LOG.info("== " + notParentWhere.toString());
+      LOG.info("==========================");
+      LOG.info("== notParentWhere - End ==");
+      LOG.info("==========================");
+    }
+    /****************************
+     ** DEBUG - END - REMOVE **
+     ****************************/
+
+
+    flattened = flattened
+//        .where((notParentWhere.and(childNotParentWhere))
+//            .or(parentWhere.and(childWhere)))
+        .where(notParentWhere)
+        .select(finalOutputColumns);
+
+//    where (parent is not parentRootValue)
+//    or (parent is parentRootValue and child = childRootValue)
+
+    /****************************
+     ** DEBUG - BEGIN - REMOVE **
+     ****************************/
+    if (SHOW_DEBUG_COLUMNS) {
+      LOG.info("================================");
+      LOG.info("== finalOutputColumns - Begin ==");
+      LOG.info("================================");
+      for (Column col : columns) {
+        LOG.info("== " + col.toString());
+      }
+      LOG.info("==============================");
+      LOG.info("== finalOutputColumns - End ==");
+      LOG.info("==============================");
+    }
+    /****************************
+     ** DEBUG - END - REMOVE **
+     ****************************/
+
+    if (SHOW_DEBUG_CONTENT) {
+      LOG.info("===========================================================");
+      LOG.info("== Content of flattened after finalOutputColumns - BEGIN ==");
+      LOG.info("===========================================================");
+      for (Iterator<Row> it = flattened.javaRDD().toLocalIterator(); it.hasNext(); ) {
+        Row line = it.next();
+        LOG.info("== " + line);
+      }
+      LOG.info("=========================================================");
+      LOG.info("== Content of flattened after finalOutputColumns - END ==");
+      LOG.info("=========================================================");
+    }
+
     return flattened.javaRDD().map(row -> DataFrames.fromRow(row, outputSchema));
   }
 
@@ -372,6 +678,19 @@ public class HierarchyFlattener {
     // This is all rows where the parent never shows up as a child
     Dataset<Row> levelZero = getNonSelfReferencingRoots(input, dataFieldNames);
 
+    if (SHOW_DEBUG_CONTENT) {
+      LOG.info("==================================");
+      LOG.info("== Content of levelZero - BEGIN ==");
+      LOG.info("==================================");
+      for (Iterator<Row> it = levelZero.javaRDD().toLocalIterator(); it.hasNext(); ) {
+        Row line = it.next();
+        LOG.info("== " + line);
+      }
+      LOG.info("==================================");
+      LOG.info("== Content of levelZero - END   ==");
+      LOG.info("==================================");
+    }
+
     /*
        The rest of level 0 is generated with another pass through the data.
 
@@ -387,11 +706,15 @@ public class HierarchyFlattener {
 
         A distinct is run at the end to remove duplicates, since there can be multiple paths to the same child.
      */
-    Column[] columns = new Column[dataFieldNames.size() + 5];
+    // 2 * pathFields.size() to account for 2 extra columns for the path & path length
+    // 1 * connectByRootFields.size() to account for 1 extra column for the connect by root field
+    Column[] columns = new Column[dataFieldNames.size() + 5 + 2 * pathFields.size()
+        + 1 * connectByRootFields.size()];
     columns[0] = input.col(childCol).as(parentCol);
     columns[1] = input.col(childCol).as(childCol);
     columns[2] = functions.lit(0).as(levelCol);
-    Column isRoot = input.col(parentCol).equalTo(input.col(childCol));
+//    Column isRoot = functions.concat(input.col(parentCol), functions.lit("ABCD")).equalTo(input.col(childCol));
+    Column isRoot = functions.isnull(input.col(parentCol));
     columns[3] = functions.when(isRoot, trueStr).otherwise(falseStr).as(topCol);
     columns[4] = functions.lit(0).as(botCol);
     int i = 5;
@@ -411,13 +734,59 @@ public class HierarchyFlattener {
       String mappedField = parentChildMapping.get(fieldName);
       if (mappedField != null) {
         columns[i++] = functions.when(isRoot, input.col(fieldName))
-          .otherwise(input.col(mappedField)).as(fieldName);
+            .otherwise(input.col(mappedField)).as(fieldName);
       } else {
         columns[i++] = input.col(fieldName);
       }
     }
 
-    return levelZero.union(input.select(columns)).distinct();
+    // Path & Path_length columns
+    for (Map<String, String> pathField : pathFields) {
+      columns[i++] = new Column(pathField.get(HierarchyConfig.VERTEX_FIELD_NAME))
+          .as(pathField.get(HierarchyConfig.PATH_FIELD_ALIAS));
+      columns[i++] = functions.lit(0).as(pathField.get(HierarchyConfig.PATH_FIELD_LENGTH_ALIAS));
+    }
+
+    // CONNECT_BY_ROOT column
+    for (Map<String, String> cbrField : connectByRootFields) {
+      columns[i++] = new Column(cbrField.get(HierarchyConfig.CONNECT_BY_ROOT_FIELD_NAME))
+          .as(cbrField.get(HierarchyConfig.CONNECT_BY_ROOT_ALIAS));
+    }
+
+    /****************************
+     ** DEBUG - BEGIN - REMOVE **
+     ****************************/
+    if (SHOW_DEBUG_COLUMNS) {
+      LOG.info("===============================");
+      LOG.info("== getStartingPoints - Begin ==");
+      LOG.info("===============================");
+      for (Column col : columns) {
+        if (col != null) {
+          LOG.info("== " + col);
+        }
+      }
+      LOG.info("=============================");
+      LOG.info("== getStartingPoints - End ==");
+      LOG.info("=============================");
+    }
+    /****************************
+     ** DEBUG - END - REMOVE **
+     ****************************/
+
+    Dataset<Row> distinct = levelZero.union(input.select(columns)).distinct();
+    if (SHOW_DEBUG_CONTENT) {
+      LOG.info("=================================");
+      LOG.info("== Content of distinct - BEGIN ==");
+      LOG.info("=================================");
+      for (Iterator<Row> it = distinct.javaRDD().toLocalIterator(); it.hasNext(); ) {
+        Row line = it.next();
+        LOG.info("== " + line);
+      }
+      LOG.info("=================================");
+      LOG.info("== Content of distinct - END   ==");
+      LOG.info("=================================");
+    }
+    return distinct;
   }
 
   /*
@@ -453,9 +822,12 @@ public class HierarchyFlattener {
        parentCategory and category both get their value from the parentCategory key in the mapping.
        Every other data field is just null.
     */
-    Column[] columns = new Column[dataFieldNames.size() + 5];
+    // 2 * pathFields.size() to account for 2 extra columns for the path & path length
+    // 1 * connectByRootFields.size() to account for 1 extra column for the coonect_by_root
+    Column[] columns = new Column[dataFieldNames.size() + 5 + 2 * pathFields.size()
+        + 1 * connectByRootFields.size()];
     columns[0] = new Column("A." + parentCol).as(parentCol);
-    columns[1] = new Column("A." + parentCol).as(childCol);
+    columns[1] = new Column("A." + childCol).as(childCol);
     columns[2] = functions.lit(0).as(levelCol);
     columns[3] = functions.lit(trueStr).as(topCol);
     columns[4] = functions.lit(0).as(botCol);
@@ -489,16 +861,136 @@ public class HierarchyFlattener {
       }
     }
 
+    // Path & Path_length columns
+    for (Map<String, String> pathField : pathFields) {
+      columns[i++] = new Column("A." + pathField.get(HierarchyConfig.VERTEX_FIELD_NAME))
+          .as(pathField.get(HierarchyConfig.PATH_FIELD_ALIAS));
+      columns[i++] = functions.lit(0).as(pathField.get(HierarchyConfig.PATH_FIELD_LENGTH_ALIAS));
+    }
+
+    // CONNECT_BY_ROOT column
+    for (Map<String, String> cbrField : connectByRootFields) {
+      columns[i++] = new Column("A." + cbrField.get(HierarchyConfig.CONNECT_BY_ROOT_FIELD_NAME))
+          .as(cbrField.get(HierarchyConfig.CONNECT_BY_ROOT_ALIAS));
+    }
+
+    /****************************
+     ** DEBUG - BEGIN - REMOVE **
+     ****************************/
+    if (SHOW_DEBUG_COLUMNS) {
+      LOG.info("========================================");
+      LOG.info("== getNonSelfReferencingRoots - Begin ==");
+      LOG.info("========================================");
+      for (Column col : columns) {
+        if (col != null) {
+          LOG.info("==  " + col);
+        }
+      }
+      LOG.info("======================================");
+      LOG.info("== getNonSelfReferencingRoots - End ==");
+      LOG.info("======================================");
+    }
+    /****************************
+     ** DEBUG -  END  - REMOVE **
+     ****************************/
+
     /*
        we only need childCol from the input and not any of the other fields
        drop all the other fields before the join so that they don't need to be shuffled
        across the cluster, only to be dropped after the join completes.
      */
     Dataset<Row> children = input.select(new Column(childCol));
-    Dataset<Row> joined = input.alias("A").join(
-      children.alias("B"), new Column("A." + parentCol).equalTo(new Column("B." + childCol)), "leftouter")
-      .where(new Column("B." + childCol).isNull())
-      .select(columns);
+
+    /****************************
+     ** DEBUG - BEGIN - REMOVE **
+     ****************************/
+    if (SHOW_DEBUG_CONTENT) {
+      LOG.info("==============================");
+      LOG.info("== Content of input - BEGIN ==");
+      LOG.info("==============================");
+      for (Iterator<Row> it = input.javaRDD().toLocalIterator(); it.hasNext(); ) {
+        Row line = it.next();
+        LOG.info("== " + line);
+      }
+      LOG.info("============================");
+      LOG.info("== Content of input - END ==");
+      LOG.info("============================");
+    }
+    /****************************
+     ** DEBUG -  END  - REMOVE **
+     ****************************/
+
+    // Build the combined join conditions based on the parent -> child mapping
+    Column joiningColumns = null;
+    for (String parentName : parentChildMapping.keySet()) {
+      String childName = parentChildMapping.get(parentName);
+      Column currentCol = new Column("A." + parentName).equalTo(new Column("B." + childName));
+      if (joiningColumns == null) {
+        joiningColumns = currentCol;
+      } else {
+        joiningColumns = joiningColumns.and(currentCol);
+      }
+    }
+
+    /****************************
+     ** DEBUG - BEGIN - REMOVE **
+     ****************************/
+    if (SHOW_DEBUG_COLUMNS) {
+      LOG.info("============================");
+      LOG.info("== joiningColumns - Begin ==");
+      LOG.info("============================");
+      if (joiningColumns != null) {
+        LOG.info("==  " + joiningColumns);
+      }
+      LOG.info("==========================");
+      LOG.info("== joiningColumns - End ==");
+      LOG.info("==========================");
+    }
+    /****************************
+     ** DEBUG -  END  - REMOVE **
+     ****************************/
+
+    Dataset<Row> joined;
+    if (broadcastJoin) {
+      joined = input.alias("A").join(
+          broadcast(children.alias("B")),
+          new Column("A." + parentCol).equalTo(new Column("B." + childCol)), "leftouter")
+          .where(new Column("B." + childCol).isNull())
+          .select(columns);
+    } else {
+      joined = input.alias("A").join(
+          children.alias("B"), new Column("A." + parentCol).equalTo(new Column("B." + childCol)), "leftouter")
+//      input.alias("B"), new Column("A." + parentCol).equalTo(new Column("B." + childCol)), "leftouter")
+          .where(new Column("B." + childCol).isNull())
+          .select(columns);
+    }
+
+    // Save the value for the root node, we'll use them at the very end to remove duplicates but keep the root node
+    Iterator<Row> rows = joined.javaRDD().toLocalIterator();
+
+    for (Iterator<Row> it = rows; it.hasNext(); ) {
+      Row row = it.next();
+      parentRootValue = row.getAs(parentCol);
+      childRootValue = row.getAs(childCol);
+    }
+
+    /****************************
+     ** DEBUG - BEGIN - REMOVE **
+     ****************************/
+    if (SHOW_DEBUG_CONTENT) {
+      LOG.info("============================");
+      LOG.info("== joined content - BEGIN ==");
+      LOG.info("============================");
+      LOG.info("== parentVal: " + parentRootValue);
+      LOG.info("== childRootValue: " + childRootValue);
+      LOG.info("==========================");
+      LOG.info("== joined content - END ==");
+      LOG.info("==========================");
+    }
+    /****************************
+     ** DEBUG -  END  - REMOVE **
+     ****************************/
+
     return joined;
   }
 

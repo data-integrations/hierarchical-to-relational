@@ -1,0 +1,83 @@
+/*
+ * Copyright © 2020 Cask Data, Inc.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License"); you may not
+ * use this file except in compliance with the License. You may obtain a copy of
+ * the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+ * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+ * License for the specific language governing permissions and limitations under
+ * the License.
+ */
+
+CONNECT SYS@XE AS SYSDBA;
+
+ALTER SESSION SET "_ORACLE_SCRIPT"=true;
+
+CREATE USER "CDAP" IDENTIFIED BY abc
+   DEFAULT TABLESPACE "CDAP_DATA"
+   TEMPORARY TABLESPACE "TEMP";   
+
+-- new object type path: SCHEMA_EXPORT/SYSTEM_GRANT
+GRANT SELECT ANY DICTIONARY TO "CDAP";
+GRANT CREATE MATERIALIZED VIEW TO "CDAP";
+GRANT CREATE TRIGGER TO "CDAP";
+GRANT CREATE PROCEDURE TO "CDAP";
+GRANT CREATE SEQUENCE TO "CDAP";
+GRANT CREATE VIEW TO "CDAP";
+GRANT CREATE TABLE TO "CDAP";
+GRANT CREATE SESSION TO "CDAP";
+
+-- new object type path: SCHEMA_EXPORT/ROLE_GRANT
+GRANT "CONNECT" TO "CDAP";
+GRANT "RESOURCE" TO "CDAP";
+
+-- new object type path: SCHEMA_EXPORT/DEFAULT_ROLE
+ALTER USER "CDAP" DEFAULT ROLE NONE;
+
+-- new object type path: SCHEMA_EXPORT/TABLESPACE_QUOTA
+DECLARE 
+  TEMP_COUNT NUMBER; 
+  SQLSTR VARCHAR2(200); 
+BEGIN 
+  SQLSTR := 'ALTER USER "CDAP" QUOTA UNLIMITED ON "CDAP_IDX"';
+  EXECUTE IMMEDIATE SQLSTR;
+EXCEPTION 
+  WHEN OTHERS THEN
+    IF SQLCODE = -30041 THEN 
+      SQLSTR := 'SELECT COUNT(*) FROM USER_TABLESPACES 
+              WHERE TABLESPACE_NAME = ''CDAP_IDX'' AND CONTENTS = ''TEMPORARY''';
+      EXECUTE IMMEDIATE SQLSTR INTO TEMP_COUNT;
+      IF TEMP_COUNT = 1 THEN RETURN; 
+      ELSE RAISE; 
+      END IF;
+    ELSE
+      RAISE;
+    END IF;
+END;
+/
+
+DECLARE 
+  TEMP_COUNT NUMBER; 
+  SQLSTR VARCHAR2(200); 
+BEGIN 
+  SQLSTR := 'ALTER USER "CDAP" QUOTA UNLIMITED ON "CDAP_DATA"';
+  EXECUTE IMMEDIATE SQLSTR;
+EXCEPTION 
+  WHEN OTHERS THEN
+    IF SQLCODE = -30041 THEN 
+      SQLSTR := 'SELECT COUNT(*) FROM USER_TABLESPACES 
+              WHERE TABLESPACE_NAME = ''CDAP_DATA'' AND CONTENTS = ''TEMPORARY''';
+      EXECUTE IMMEDIATE SQLSTR INTO TEMP_COUNT;
+      IF TEMP_COUNT = 1 THEN RETURN; 
+      ELSE RAISE; 
+      END IF;
+    ELSE
+      RAISE;
+    END IF;
+END;
+/
