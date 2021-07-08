@@ -1,7 +1,7 @@
 {
     "artifact": {
         "name": "cdap-data-pipeline",
-        "version": "6.3.0-SNAPSHOT",
+        "version": "6.6.0-SNAPSHOT",
         "scope": "SYSTEM"
     },
     "description": "Data Pipeline Application",
@@ -39,7 +39,7 @@
                     "label": "BigQuery",
                     "artifact": {
                         "name": "google-cloud",
-                        "version": "0.16.0-SNAPSHOT",
+                        "version": "0.19.0-SNAPSHOT",
                         "scope": "USER"
                     },
                     "properties": {
@@ -69,24 +69,20 @@
                     "label": "Hierarchy Configuration",
                     "artifact": {
                         "name": "hierarchy-to-relational",
-                        "version": "1.0.0-SNAPSHOT",
+                        "version": "2.0.0-SNAPSHOT",
                         "scope": "USER"
                     },
                     "properties": {
                         "parentField": "parent",
                         "childField": "child",
-                        "parentChildMappingField": "parent_name=child_name",
                         "levelField": "level",
-                        "topField": "IsTop",
-                        "bottomField": "IsBottom",
-                        "trueValueField": "True",
-                        "falseValueField": "False"
+                        "bottomField": "IsBottom"
                     }
                 },
                 "outputSchema": [
                     {
                         "name": "etlSchemaBody",
-                        "schema": "{\"type\":\"record\",\"name\":\"record\",\"fields\":[{\"name\":\"parent\",\"type\":[\"long\",\"null\"]},{\"name\":\"child\",\"type\":[\"long\",\"null\"]},{\"name\":\"child_name\",\"type\":[\"string\",\"null\"]},{\"name\":\"parent_name\",\"type\":[\"string\",\"null\"]},{\"name\":\"level\",\"type\":\"int\"},{\"name\":\"IsTop\",\"type\":\"string\"},{\"name\":\"IsBottom\",\"type\":\"string\"}]}"
+                        "schema": "{\"type\":\"record\",\"name\":\"record\",\"fields\":[{\"name\":\"parent\",\"type\":[\"long\",\"null\"]},{\"name\":\"child\",\"type\":[\"long\",\"null\"]},{\"name\":\"child_name\",\"type\":[\"string\",\"null\"]},{\"name\":\"parent_name\",\"type\":[\"string\",\"null\"]},{\"name\":\"level\",\"type\":\"int\"},{\"name\":\"IsBottom\",\"type\":\"string\"}]}"
                     }
                 ],
                 "inputSchema": [
@@ -121,7 +117,7 @@
                 "inputSchema": [
                     {
                         "name": "Hierarchy Configuration",
-                        "schema": "{\"type\":\"record\",\"name\":\"record\",\"fields\":[{\"name\":\"parent\",\"type\":[\"long\",\"null\"]},{\"name\":\"child\",\"type\":[\"long\",\"null\"]},{\"name\":\"child_name\",\"type\":[\"string\",\"null\"]},{\"name\":\"parent_name\",\"type\":[\"string\",\"null\"]},{\"name\":\"level\",\"type\":\"int\"},{\"name\":\"IsTop\",\"type\":\"string\"},{\"name\":\"IsBottom\",\"type\":\"string\"}]}"
+                        "schema": "{\"type\":\"record\",\"name\":\"record\",\"fields\":[{\"name\":\"parent\",\"type\":[\"long\",\"null\"]},{\"name\":\"child\",\"type\":[\"long\",\"null\"]},{\"name\":\"child_name\",\"type\":[\"string\",\"null\"]},{\"name\":\"parent_name\",\"type\":[\"string\",\"null\"]},{\"name\":\"level\",\"type\":\"int\"},{\"name\":\"IsBottom\",\"type\":\"string\"}]}"
                     }
                 ],
                 "id": "Trash"

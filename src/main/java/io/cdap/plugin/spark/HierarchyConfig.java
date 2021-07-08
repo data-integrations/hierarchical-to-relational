@@ -30,7 +30,6 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 
 /**
@@ -40,19 +39,18 @@ public class HierarchyConfig extends PluginConfig {
 
   private static final String PARENT_FIELD = "parentField";
   private static final String CHILD_FIELD = "childField";
-  private static final String PARENT_CHILD_MAPPING_FIELD = "parentChildMappingField";
   private static final String LEVEL_FIELD = "levelField";
   private static final String LEVEL_FIELD_DEFAULT_VALUE = "Level";
-  private static final String TOP_FIELD = "topField";
-  private static final String TOP_FIELD_DEFAULT_VALUE = "Top";
   private static final String BOTTOM_FIELD = "bottomField";
   private static final String BOTTOM_FIELD_DEFAULT_VALUE = "Bottom";
-  private static final String TRUE_VALUE_FIELD = "trueValueField";
-  private static final String TRUE_VALUE_FIELD_DEFAULT_VALUE = "Y";
-  private static final String FALSE_VALUE_FIELD = "falseValueField";
-  private static final String FALSE_VALUE_FIELD_DEFAULT_VALUE = "N";
-  private static final String MAX_DEPTH_FIELD = "maxDepthField";
+  private static final String MAX_DEPTH_FIELD = "maxDepth";
   private static final int MAX_DEPTH_FIELD_DEFAULT_VALUE = 50;
+  private static final String START_WITH_FIELD = "startWith";
+  private static final String CONNECT_BY_ROOT_FIELD = "connectByRootField";
+  private static final String PATH_FIELD = "pathField";
+  private static final String PATH_ALIAS_FIELD = "pathAliasField";
+  private static final String PATH_SEPARATOR_FIELD = "pathSeparator";
+  private static final String PATH_SEPARATOR_DEFAULT_VALUE = "/";
 
 
   @Name(PARENT_FIELD)
@@ -67,27 +65,12 @@ public class HierarchyConfig extends PluginConfig {
   @Macro
   private String childField;
 
-  @Name(PARENT_CHILD_MAPPING_FIELD)
-  @Description("Specifies parent child field mapping for fields that require swapping parent fields with tree/branch" +
-    " root fields. ")
-  @Macro
-  @Nullable
-  private String parentChildMappingField;
-
   @Name(LEVEL_FIELD)
   @Description("The name of the field that should contain the Yes level in the hierarchy starting at a particular " +
     "node in the tree. The level is calculated as a distance of a node to a particular parent node in the tree.")
   @Macro
   @Nullable
   private String levelField;
-
-  @Name(TOP_FIELD)
-  @Description("The name of the field that determines whether a node is the root element or the top-most element" +
-    " in the hierarchy. The input data should always contain a single non-null root node. For that node, this" +
-    " field is true, while it is marked false for all other nodes in the hierarchy.")
-  @Macro
-  @Nullable
-  private String topField;
 
   @Name(BOTTOM_FIELD)
   @Description("The name of the field that determines whether a node is a leaf element or the bottom-most " +
@@ -96,18 +79,6 @@ public class HierarchyConfig extends PluginConfig {
   @Nullable
   private String bottomField;
 
-  @Name(TRUE_VALUE_FIELD)
-  @Description("The value that denotes truth in the Top and Bottom fields.")
-  @Macro
-  @Nullable
-  private String trueValue;
-
-  @Name(FALSE_VALUE_FIELD)
-  @Description("The value that denotes false in the Top and Bottom fields")
-  @Macro
-  @Nullable
-  private String falseValue;
-
   @Name(MAX_DEPTH_FIELD)
   @Description("The maximum depth upto which the data should be flattened. If a node is reached at a deeper" +
     " level, an error should be thrown.")
@@ -115,12 +86,45 @@ public class HierarchyConfig extends PluginConfig {
   @Nullable
   private Integer maxDepth;
 
+  @Name(START_WITH_FIELD)
+  @Description("Defines a condition to identify a starting point in the input data that will be used to expand the" +
+    " hierarchy.")
+  @Macro
+  @Nullable
+  private String startWith;
+
+  @Name(CONNECT_BY_ROOT_FIELD)
+  @Description("Specifies root fields along with their aliases that are added to the output.")
+  @Macro
+  @Nullable
+  private String connectByRootField;
+
+  @Name(PATH_FIELD)
+  @Description("Name of the field used to generate the path.")
+  @Macro
+  @Nullable
+  private String pathField;
+
+  @Name(PATH_ALIAS_FIELD)
+  @Description("The name of the field that contains a textual representation of the path that a record denotes.")
+  @Macro
+  @Nullable
+  private String pathAliasField;
+
+
+  @Name(PATH_SEPARATOR_FIELD)
+  @Description("The separator for nodes in the path.")
+  @Macro
+  @Nullable
+  private String pathSeparator;
+
   public boolean requiredFieldsContainMacro() {
     return containsMacro(PARENT_FIELD) || containsMacro(CHILD_FIELD) || containsMacro(LEVEL_FIELD) ||
-      containsMacro(TOP_FIELD) || containsMacro(LEVEL_FIELD) || containsMacro(BOTTOM_FIELD);
+      containsMacro(LEVEL_FIELD) || containsMacro(BOTTOM_FIELD)
+      || containsMacro(PATH_FIELD) || containsMacro(PATH_ALIAS_FIELD);
   }
 
-  public void validate(FailureCollector collector) {
+  public void validate(FailureCollector collector, Schema inputSchema) {
     if (requiredFieldsContainMacro()) {
       return;
     }
@@ -132,28 +136,40 @@ public class HierarchyConfig extends PluginConfig {
       collector.addFailure("Parent field is null/empty.", "Please provide valid parent field.")
         .withConfigProperty(PARENT_FIELD);
     }
-    if (!Strings.isNullOrEmpty(PARENT_CHILD_MAPPING_FIELD)) {
-      Map<String, String> parentChildMapping = getParentChildMapping();
-      if (parentChildMapping.containsKey(parentField) || parentChildMapping.containsValue(parentField)) {
-        collector.addFailure("Parent key field found mapping.",
-                             "Parent key field cannot be part of parent-> child mapping.")
-          .withConfigProperty(PARENT_CHILD_MAPPING_FIELD);
-      }
-      if (parentChildMapping.containsKey(childField) || parentChildMapping.containsValue(childField)) {
-        collector.addFailure("Child key field found mapping.",
-                             "Child key field cannot be part of parent-> child mapping.")
-          .withConfigProperty(PARENT_CHILD_MAPPING_FIELD);
-      }
-    }
     if (Strings.isNullOrEmpty(childField)) {
       collector.addFailure("Child field is null/empty.", "Please provide valid child field.")
         .withConfigProperty(CHILD_FIELD);
     }
     if (maxDepth != null && maxDepth < 1) {
       collector.addFailure("Invalid max depth.", "Max depth must be at least 1.")
-        .withConfigProperty(CHILD_FIELD);
+        .withConfigProperty(MAX_DEPTH_FIELD);
     }
-    collector.getOrThrowException();
+
+    if (!Strings.isNullOrEmpty(pathField)) {
+      if (Strings.isNullOrEmpty(pathAliasField)) {
+        collector.addFailure("Path alias field name is null/empty.",
+                           "Path alias field name needs to be specified.")
+          .withConfigProperty(PATH_ALIAS_FIELD);
+      }
+      if (inputSchema.getFields().stream().noneMatch(field -> field.getName().equals(pathField))) {
+        collector.addFailure(String.format("Field %s not found in the input schema.", pathField),
+                             "Specify a field that is present in the input schema.")
+          .withConfigProperty(PATH_FIELD);
+      }
+    }
+    if (!Strings.isNullOrEmpty(pathAliasField) && Strings.isNullOrEmpty(pathField)) {
+      collector.addFailure("Path field name is null/empty.",
+                           "Path field name needs to be specified.")
+        .withConfigProperty(PATH_FIELD);
+    }
+
+    for (String fieldName: getConnectByRoot().keySet()) {
+      if (inputSchema.getFields().stream().noneMatch(field -> field.getName().equals(fieldName))) {
+        collector.addFailure(String.format("Field %s not found in the input schema.", fieldName),
+                             "Specify a field that is present in the input schema.")
+          .withConfigProperty(CONNECT_BY_ROOT_FIELD);
+      }
+    }
   }
 
   public String getParentField() {
@@ -171,13 +187,6 @@ public class HierarchyConfig extends PluginConfig {
     return levelField;
   }
 
-  public String getTopField() {
-    if (Strings.isNullOrEmpty(topField)) {
-      return TOP_FIELD_DEFAULT_VALUE;
-    }
-    return topField;
-  }
-
   public String getBottomField() {
     if (Strings.isNullOrEmpty(bottomField)) {
       return BOTTOM_FIELD_DEFAULT_VALUE;
@@ -185,36 +194,41 @@ public class HierarchyConfig extends PluginConfig {
     return bottomField;
   }
 
-  public String getTrueValue() {
-    if (Strings.isNullOrEmpty(trueValue)) {
-      return TRUE_VALUE_FIELD_DEFAULT_VALUE;
-    }
-    return trueValue;
-  }
-
-  public String getFalseValue() {
-    if (Strings.isNullOrEmpty(falseValue)) {
-      return FALSE_VALUE_FIELD_DEFAULT_VALUE;
-    }
-    return falseValue;
-  }
-
   public int getMaxDepth() {
     return maxDepth == null ? MAX_DEPTH_FIELD_DEFAULT_VALUE : maxDepth;
   }
 
-  public Map<String, String> getParentChildMapping() {
-    Map<String, String> parentChildMap = new HashMap<>();
-    if (Strings.isNullOrEmpty(parentChildMappingField)) {
-      return parentChildMap;
+  @Nullable
+  public String getStartWith() {
+    return startWith;
+  }
+
+  @Nullable
+  public String getPathField() {
+    return pathField;
+  }
+
+  @Nullable
+  public String getPathAliasField() {
+    return pathAliasField;
+  }
+
+  public String getPathSeparator() {
+    return Strings.isNullOrEmpty(pathSeparator) ? PATH_SEPARATOR_DEFAULT_VALUE : pathSeparator;
+  }
+
+  public Map<String, String> getConnectByRoot() {
+    Map<String, String> connectByRootMap = new HashMap<>();
+    if (Strings.isNullOrEmpty(connectByRootField)) {
+      return connectByRootMap;
     }
     KeyValueListParser keyValueListParser = new KeyValueListParser(";", "=");
-    Iterable<KeyValue<String, String>> parsedParentChildMappingField = keyValueListParser
-      .parse(parentChildMappingField);
-    for (KeyValue<String, String> keyValuePair : parsedParentChildMappingField) {
-      parentChildMap.put(keyValuePair.getKey(), keyValuePair.getValue());
+    Iterable<KeyValue<String, String>> parsedConnectByRootField = keyValueListParser
+      .parse(connectByRootField);
+    for (KeyValue<String, String> keyValuePair : parsedConnectByRootField) {
+      connectByRootMap.put(keyValuePair.getKey(), keyValuePair.getValue());
     }
-    return parentChildMap;
+    return connectByRootMap;
   }
 
   /**
@@ -226,35 +240,24 @@ public class HierarchyConfig extends PluginConfig {
     if (inputSchema == null || inputSchema.getFields() == null) {
       throw new IllegalArgumentException("Input schema is required.");
     }
-    List<Schema.Field> fields = new ArrayList<>();
-    List<String> nonMappedFields = getNonMappedFields(inputSchema);
-    for (Schema.Field field : inputSchema.getFields()) {
-      if (nonMappedFields.contains(field.getName())) {
-        Schema.Field updatedField = Schema.Field.of(field.getName(), field.getSchema().isNullable() ? field.getSchema()
-          : Schema.nullableOf(field.getSchema()));
-        fields.add(updatedField);
-      } else {
-        fields.add(field);
-      }
-    }
+    List<Schema.Field> fields = new ArrayList<>(inputSchema.getFields());
     fields.add(Schema.Field.of(getLevelField(), Schema.of(Schema.Type.INT)));
-    fields.add(Schema.Field.of(getTopField(), Schema.of(Schema.Type.STRING)));
-    fields.add(Schema.Field.of(getBottomField(), Schema.of(Schema.Type.STRING)));
+    fields.add(Schema.Field.of(getBottomField(), Schema.of(Schema.Type.BOOLEAN)));
+    if (!Strings.isNullOrEmpty(pathField) && !Strings.isNullOrEmpty(pathAliasField)) {
+      fields.add(Schema.Field.of(getPathAliasField(), Schema.of(Schema.Type.STRING)));
+    }
+    for (Map.Entry<String, String> entry: getConnectByRoot().entrySet()) {
+      fields.add(Schema.Field.of(entry.getValue(), getFieldSchema(inputSchema, entry.getKey())));
+    }
     return Schema.recordOf(inputSchema.getRecordName() + "_flattened", fields);
   }
 
-  /**
-   * Generates list of fields that are in input schema but are not mapped.
-   *
-   * @param inputSchema {@link Schema}
-   * @return list of fields not included in parent->child mapping
-   */
-  public List<String> getNonMappedFields(Schema inputSchema) {
-    List<Schema.Field> fields = inputSchema.getFields();
-    Map<String, String> parentChildMapping = getParentChildMapping();
-    return fields.stream().map(field -> field.getName())
-      .filter(fieldName -> !(parentChildMapping.containsKey(fieldName) ||
-        parentChildMapping.containsValue(fieldName) || fieldName.equals(parentField) || fieldName.equals(childField)))
-      .collect(Collectors.toList());
+  private Schema getFieldSchema(Schema inputSchema, String fieldName) {
+    for (Schema.Field field: inputSchema.getFields()) {
+      if (field.getName().equals(fieldName)) {
+        return field.getSchema();
+      }
+    }
+    throw new IllegalArgumentException(String.format("Field %s not found in the input schema", fieldName));
   }
 }
