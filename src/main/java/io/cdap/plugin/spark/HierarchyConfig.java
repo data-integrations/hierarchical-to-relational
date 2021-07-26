@@ -43,7 +43,7 @@ public class HierarchyConfig extends PluginConfig {
   private static final String LEVEL_FIELD_DEFAULT_VALUE = "Level";
   private static final String BOTTOM_FIELD = "bottomField";
   private static final String BOTTOM_FIELD_DEFAULT_VALUE = "Bottom";
-  private static final String MAX_DEPTH_FIELD = "maxDepth";
+  private static final String MAX_DEPTH_FIELD = "maxDepthField";
   private static final int MAX_DEPTH_FIELD_DEFAULT_VALUE = 50;
   private static final String START_WITH_FIELD = "startWith";
   private static final String CONNECT_BY_ROOT_FIELD = "connectByRootField";
