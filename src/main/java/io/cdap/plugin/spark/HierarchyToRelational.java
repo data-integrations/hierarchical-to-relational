@@ -32,7 +32,6 @@ import org.apache.spark.api.java.JavaRDD;
 
 import java.util.Collections;
 import java.util.List;
-import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
@@ -58,12 +57,12 @@ public class HierarchyToRelational extends SparkCompute<StructuredRecord, Struct
     StageConfigurer stageConfigurer = pipelineConfigurer.getStageConfigurer();
     Schema outputSchema = config.generateOutputSchema(pipelineConfigurer.getStageConfigurer().getInputSchema());
     stageConfigurer.setOutputSchema(outputSchema);
-    config.validate(stageConfigurer.getFailureCollector());
+    config.validate(stageConfigurer.getFailureCollector(), pipelineConfigurer.getStageConfigurer().getInputSchema());
   }
 
   @Override
   public void prepareRun(SparkPluginContext context) {
-    config.validate(context.getFailureCollector());
+    config.validate(context.getFailureCollector(), context.getInputSchema());
     recordLineage(context);
   }
 
@@ -90,10 +89,10 @@ public class HierarchyToRelational extends SparkCompute<StructuredRecord, Struct
       .collect(Collectors.toList());
     String description = String.format("Flattened the dataset by using the input field '%s' as the parent " +
                                          "field and '%s' as the child field. Generated the column '%s' to " +
-                                         "contain distance from parent nodes, '%s' to denote if a node is the root " +
-                                         "of the hierarchy and '%s' to denote if a node is a leaf in the " +
-                                         "hierarchy.", config.getParentField(), config.getChildField(),
-                                       config.getLevelField(), config.getTopField(), config.getBottomField());
+                                         "contain distance from parent nodes,'%s' to denote if a node is a leaf in " +
+                                         "the hierarchy.",
+                                       config.getParentField(), config.getChildField(),
+                                       config.getLevelField(),  config.getBottomField());
     FieldOperation operation = new FieldTransformOperation(PLUGIN_NAME, description, inputFields, outputFields);
     context.record(Collections.singletonList(operation));
   }

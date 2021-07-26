@@ -3,7 +3,7 @@
     "description": "Data Pipeline Application",
     "artifact": {
         "name": "cdap-data-pipeline",
-        "version": "6.3.0-SNAPSHOT",
+        "version": "6.6.0-SNAPSHOT",
         "scope": "SYSTEM"
     },
     "config": {
@@ -39,7 +39,7 @@
                     "label": "File",
                     "artifact": {
                         "name": "core-plugins",
-                        "version": "2.5.0-SNAPSHOT",
+                        "version": "2.8.0-SNAPSHOT",
                         "scope": "SYSTEM"
                     },
                     "properties": {
@@ -73,18 +73,14 @@
                     "label": "Hierarchy Configuration",
                     "artifact": {
                         "name": "hierarchy-to-relational",
-                        "version": "1.0.0-SNAPSHOT",
+                        "version": "2.0.0-SNAPSHOT",
                         "scope": "USER"
                     },
                     "properties": {
                         "parentField": "ParentId",
                         "childField": "ChildId",
-                        "parentChildMappingField": "ParentProduct=ChildProduct",
                         "levelField": "Level",
-                        "topField": "Root",
                         "bottomField": "Leaf",
-                        "trueValueField": "true",
-                        "falseValueField": "false",
                         "maxDepthField": "50"
                     }
                 },
