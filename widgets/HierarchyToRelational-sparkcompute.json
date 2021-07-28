@@ -1,0 +1,79 @@
+{
+  "metadata": {
+    "spec-version": "1.5",
+    "label": "Hierarchy to Relational"
+  },
+  "display-name" : "Hierarchy to Relational",
+  "configuration-groups": [
+    {
+      "label": "Basic",
+      "properties": [
+        {
+          "label": "Parent field",
+          "name": "parentField",
+          "widget-type": "input-field-selector"
+        },
+        {
+          "label": "Child field",
+          "name": "childField",
+          "widget-type": "input-field-selector"
+        }
+      ]
+    },
+    {
+      "label": "Advanced",
+      "properties": [
+        {
+          "label": "Level field name",
+          "name": "levelField",
+          "widget-type": "textbox",
+          "default": "Level"
+        },
+        {
+          "label": "Bottom field name",
+          "name": "bottomField",
+          "widget-type": "textbox",
+          "default": "Bottom"
+        },
+        {
+          "label": "Max depth",
+          "name": "maxDepthField",
+          "widget-type": "textbox",
+          "default": 50
+        },
+        {
+          "label": "Start With",
+          "name": "startWith",
+          "widget-type": "textbox"
+        },
+        {
+          "label": "Path field name",
+          "name": "pathField",
+          "widget-type": "textbox"
+        },
+        {
+          "label": "Path separator",
+          "name": "pathSeparator",
+          "widget-type": "textbox"
+        },
+        {
+          "label": "Path alias field name",
+          "name": "pathAliasField",
+          "widget-type": "textbox"
+        },
+        {
+          "label": "Connect By Root",
+          "name": "connectByRootField",
+          "widget-type": "keyvalue",
+          "widget-attributes": {
+            "showDelimiter": "false",
+            "key-placeholder": "Root field",
+            "value-placeholder": "Root alias field",
+            "kv-delimiter": "=",
+            "delimiter": ";"
+          }
+        }
+      ]
+    }
+  ]
+}
