@@ -10,8 +10,8 @@ This plugin can be used when user needs to Flatten a hierarchical data model to 
 It expects incoming records to represent a direct parent-child relationship from one element to another.
 The input data can contain multiple root elements, but must not contain any cycles. Self referencing nodes
 (parent = child) will be ignored.
-The plugin will flatten the hierarchy such that there is an output record from each element to itself and
-to all of its descendents. Each output record will include the distance from the element to its descendent.
+The plugin will flatten the hierarchy such that there is an output record from each element to all of its children.
+Each output record will include the distance of the element from the root of the hierarchy.
 
 Properties
 ----------
@@ -28,7 +28,7 @@ a parent to a child, only a single record is output, where the level is set to t
 in the hierarchy. The input data can contain multiple leaf nodes. This will be true whenever the child is a leaf element,
 even if the parent is not a leaf.
 
-**Max depth:** The maximum depth upto which the data should be flattened. If a node is reached at a deeper level, 
+**Max Depth:** The maximum depth upto which the data should be flattened. If a node is reached at a deeper level, 
 an error will be thrown.
 
 **Start With:** Defines a SQL condition to identify the root elements in the hierarchy.
